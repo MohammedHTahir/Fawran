@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "Fawran",
+    "slug": "fawran",
+    "scheme": "fawran",
+    "version": "0.2.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.fawran.app"
+    },
+    "android": {
+      "package": "com.fawran.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#0B6B64"
+      }
+    },
+    "plugins": [
+      "expo-secure-store"
+    ]
+  }
+}

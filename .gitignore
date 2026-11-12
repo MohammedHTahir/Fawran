@@ -1,6 +1,7 @@
 **/node_modules/
-**/.dart_tool/
 **/build/
+**/.expo/
+**/dist/
 **/.env
 **/.env.*
 !**/.env.example

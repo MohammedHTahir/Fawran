@@ -1,0 +1,29 @@
+{
+  "name": "fawran-mobile",
+  "version": "0.2.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run typecheck",
+    "build:android": "expo export --platform android"
+  },
+  "dependencies": {
+    "expo": "~58.0.24",
+    "expo-clipboard": "~58.0.0",
+    "expo-secure-store": "~58.0.0",
+    "react": "19.3.0",
+    "react-native": "0.88.1"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.0",
+    "typescript": "~5.9.3"
+  }
+}

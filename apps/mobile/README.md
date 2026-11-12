@@ -1,25 +1,28 @@
-# Fawran app (Flutter prototype)
+# Fawran Mobile — React Native + Expo
 
-Arabic-first (RTL) with English toggle. Talks to `fawran-backend`. Uses fake money (mock provider).
+Arabic-first RTL with an English toggle. The Expo app uses SecureStore for session tokens and connects to the existing NestJS API. It is a prototype: OTP is development-only and payment provider methods are mocked.
 
 ## Run
+
 ```bash
-flutter create --platforms=android,ios .     # generates android/ and ios/ folders (once)
-flutter pub get
-flutter analyze && flutter test
-flutter run --dart-define=API_URL=http://10.0.2.2:3000     # Android emulator -> your machine
-# iOS simulator: --dart-define=API_URL=http://localhost:3000
+npm install
+cp .env.example .env
+npx expo start
 ```
-Android debug builds need cleartext HTTP to reach a local server: in `android/app/src/debug/AndroidManifest.xml`
-add `android:usesCleartextTraffic="true"` to `<application>`. Never ship that in release builds; use HTTPS.
 
-Start the backend first (`docker compose up -d db && npm run dev` in `fawran-backend`). Sign in with any Egyptian
-mobile number; the dev code is `000000`. Create two accounts to test sending money between them.
+Set `EXPO_PUBLIC_API_URL` to a reachable API. Use `http://10.0.2.2:3000` for an Android emulator, `http://localhost:3000` for an iOS simulator, and a reachable LAN or HTTPS URL for a physical device. Cloud previews and hosted test devices require a public HTTPS staging API; localhost will not work there.
 
-## Screens built
-Sign-in (phone + code), Home (balance, top-up sheet, quick actions, recent), Send money (with confirm and receipt),
-Payment link (create + copy), Activity, Account (language, log out).
+## Cloud builds
 
-## Not built yet
-Request money, Split bill, QR, KYC onboarding, cash-in/out map, business dashboard, the public payer web page,
-push notifications, biometric lock, refresh tokens (session ends after 1 hour), app icon/branding assets, a bundled Arabic font.
+```bash
+npx eas-cli@latest login
+npx eas-cli@latest build:configure
+npx eas-cli@latest build --platform android --profile preview
+npx eas-cli@latest build --platform ios --profile preview
+```
+
+The preview Android profile creates an APK; production creates an Android App Bundle. Set `EXPO_PUBLIC_API_URL` in the EAS build environment. EAS Free has monthly build quotas and low-priority queues; check current pricing before planning releases.
+
+Implemented: phone/OTP login, wallet, recent activity, mock top-up, P2P transfers with confirmation and idempotency keys, receipt, payment-code creation/sharing, language switch and logout.
+
+Not implemented: public payer checkout, request money, split bill, QR, KYC, cash-in/out locator, merchant dashboard, push notifications, biometric app lock, and real payment/SMS integrations. Do not enter real customer data or represent this as a live wallet.
