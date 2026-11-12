@@ -1,53 +1,50 @@
 # Fawran
 
-Egypt-first wallet and merchant payments platform. This repository combines the Flutter mobile app and NestJS API from the supplied Claude prototype, with a staged plan to evolve it safely.
+Egypt-first wallet and merchant payments prototype. The repository contains a React Native + Expo mobile app and a NestJS API backed by PostgreSQL.
 
-> **Important:** This is a development prototype. It is not a licensed wallet, payment institution, bank, or live payment service. The included payment provider is a mock. Do not use real customer funds or personal data until the legal, regulatory, provider, security, and operational gates in `docs/PRODUCTION_READINESS.md` are complete.
+> **Important:** This is a development prototype, not a licensed wallet, payment institution, bank, or live payment service. The payment provider is mocked and the OTP flow is development-only. Do not use real customer funds or personal data until the legal, regulatory, provider, security, and operational gates in `docs/PRODUCTION_READINESS.md` are complete.
 
 ## Repository layout
 
-- `apps/mobile/` — Flutter customer app (Arabic-first, RTL, English option)
+- `apps/mobile/` — React Native + Expo customer app (Arabic-first RTL, English option)
 - `services/api/` — NestJS API and PostgreSQL ledger
-- `docs/` — architecture, delivery roadmap, security and production gates
-- `.github/workflows/` — CI checks
+- `docs/` — architecture, roadmap and production gates
+- `.github/workflows/` — API and Expo CI
 
-## Quick start
-
-### API
+## API quick start
 
 ```bash
 cd services/api
 cp .env.example .env
-docker compose up -d postgres
+docker compose up -d db
 npm ci
 npm run dev
 ```
 
-API defaults to `http://localhost:3000`. Development OTP is `000000`; this is deliberately not a production flow.
+The API listens on `http://localhost:3000`. Development OTP is `000000`. The API loads `.env` automatically when started from this directory.
 
-### Flutter
+## Mobile quick start
 
-Install Flutter 3. Add platform folders if absent:
+Install Node.js 22.13+ and npm:
 
 ```bash
 cd apps/mobile
-flutter create --platforms=android,ios .
-flutter pub get
-flutter run --dart-define=API_URL=http://10.0.2.2:3000
+npm install
+copy .env.example .env
+npx expo start
 ```
 
-Use `http://localhost:3000` for iOS simulator; Android emulator uses `10.0.2.2`. A physical device needs the reachable LAN API address.
+Set `EXPO_PUBLIC_API_URL` to a reachable API. Use `http://10.0.2.2:3000` for Android emulators, `http://localhost:3000` for iOS simulators, and a LAN or HTTPS URL for physical devices. Cloud previews require a publicly reachable HTTPS staging API. Never put secrets in `EXPO_PUBLIC_*` variables.
 
-## Implemented API surface
+## Cloud builds
 
-- `POST /auth/otp`, `POST /auth/verify`
-- `GET /wallet`, `GET /transactions`
-- `POST /wallet/topup`
-- `POST /transfers`
-- `POST /links`, `GET /links/:code`, `POST /links/:code/pay`
+```bash
+cd apps/mobile
+npx eas-cli@latest login
+npx eas-cli@latest build:configure
+npx eas-cli@latest build --platform android --profile preview
+```
 
-All amounts are integer piasters (100 piasters = EGP 1). Provider methods are placeholders and must not be represented as InstaPay/card/wallet production integrations.
+The preview Android profile creates an APK; production creates an AAB for Google Play. EAS Free has limited monthly builds and low-priority queues; verify current quotas before release planning.
 
-## Delivery plan
-
-See `docs/ROADMAP.md` for the revised phases and acceptance criteria. See `docs/PRODUCTION_READINESS.md` for hard release blockers.
+All amounts are integer piasters (100 piasters = EGP 1). Provider methods are placeholders and must not be represented as real InstaPay/card/mobile-wallet integrations. See `docs/ROADMAP.md` and `docs/PRODUCTION_READINESS.md`.

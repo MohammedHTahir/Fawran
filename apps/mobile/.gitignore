@@ -1,5 +1,9 @@
-.dart_tool/
-build/
-.flutter-plugins*
-*.iml
-.idea/
+node_modules/
+.expo/
+dist/
+web-build/
+*.jks
+*.keystore
+*.p8
+*.p12
+*.mobileprovision
