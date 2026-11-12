@@ -1,0 +1,5 @@
+services:
+  db:
+    image: postgres:16
+    environment: { POSTGRES_USER: fawran, POSTGRES_PASSWORD: fawran, POSTGRES_DB: fawran }
+    ports: ["5432:5432"]
