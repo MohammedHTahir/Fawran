@@ -258,6 +258,42 @@ export class BlnkLedgerAdapter implements LedgerPort {
     throw new ServiceUnavailableException('Blnk returned an unrecognized transaction state; reconciliation is required');
   }
 
+  /** Reconcile uncertain operations without ever submitting a second movement. */
+  async reconcilePending(limit = 100) {
+    const safeLimit = Math.max(1, Math.min(500, Math.trunc(limit)));
+    const rows = await this.pool.query(
+      `select idempotency_key, blnk_reference from ledger_operations
+       where status in ('processing','pending','unknown')
+       order by updated_at asc limit $1`, [safeLimit]);
+    const summary = { checked: 0, applied: 0, failed: 0, pending: 0, unknown: 0 };
+    for (const row of rows.rows) {
+      summary.checked++;
+      try {
+        const transaction = await this.findByReference(row.blnk_reference);
+        const status = String(transaction?.status ?? '').toUpperCase();
+        const txnId = transaction?.transaction_id ?? transaction?.id;
+        if (status === 'APPLIED' && typeof txnId === 'string') {
+          await this.markOperation(row.idempotency_key, 'applied', txnId);
+          summary.applied++;
+        } else if (status === 'REJECTED' || status === 'VOID') {
+          await this.markOperation(row.idempotency_key, 'failed', typeof txnId === 'string' ? txnId : undefined, status);
+          summary.failed++;
+        } else if (PENDING.has(status)) {
+          await this.markOperation(row.idempotency_key, 'pending', typeof txnId === 'string' ? txnId : undefined);
+          summary.pending++;
+        } else {
+          await this.markOperation(row.idempotency_key, 'unknown', undefined, 'No terminal Blnk transaction found');
+          summary.unknown++;
+        }
+      } catch (error) {
+        await this.markOperation(row.idempotency_key, 'unknown', undefined,
+          error instanceof Error ? error.message : 'Reconciliation request failed');
+        summary.unknown++;
+      }
+    }
+    return summary;
+  }
+
   async history(accountId: string, limit = 50) {
     const remoteId = await this.resolveBalance(accountId);
     const pageSize = Math.max(1, Math.min(100, Math.trunc(limit)));
