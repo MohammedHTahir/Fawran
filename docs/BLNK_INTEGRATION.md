@@ -104,7 +104,7 @@ If Blnk cannot provide the needed atomic uniqueness guarantee, implement a durab
 
 1. Keep the local Blnk stack loopback-only and confirm the Blnk EGP ledger and system/funding balance exist.
 2. In `services/api/.env`, set `LEDGER_PROVIDER=blnk`, `BLNK_BASE_URL=http://127.0.0.1:5001`, `BLNK_LEDGER_ID=<your EGP ledger id>`, and `BLNK_SYSTEM_BALANCE_ID=<your controlled system balance id>`.
-3. Leave `BLNK_API_KEY` blank only for the local instance with secure mode disabled. Use a scoped secret key when secure mode is enabled; never commit it.
+3. Leave `BLNK_API_KEY` blank only for the local instance with secure mode disabled. Use a scoped secret key when secure mode is enabled; never commit it. Production mode additionally requires HTTPS, `BLNK_API_KEY`, and `BLNK_SECURE_MODE=true`; configure Blnk itself with secure mode enabled before setting this flag.
 4. Restart the API. New wallet reads lazily create Blnk balances and persist their mapping. Existing PostgreSQL balances are not migrated or copied. Accounts with legacy ledger entries are deliberately blocked from lazy mapping; use fresh disposable test users and fund only through the test provider.
 5. To inspect uncertain operations, run `npm run ledger:reconcile` from `services/api` with the same Blnk environment and database connection. Review any pending/unknown records before retrying user requests.
 6. To roll back, set `LEDGER_PROVIDER=postgres` and restart. Do not switch back and forth for accounts that have already received Blnk transactions: the PostgreSQL ledger will not contain those movements.
@@ -115,7 +115,7 @@ The automated adapter tests mock the Blnk HTTP API and cover durable account map
 
 - No customer ledger data migration.
 - No switch of live Fawran wallet endpoints to Blnk.
-- No payment provider or InstaPay integration.
+- No licensed payment provider or InstaPay integration. The mock provider is now disabled in production and fails closed until a licensed provider adapter is configured.
 - No real funds, production credentials, or public deployment.
 - No removal of the existing ledger until a reviewed migration and rollback plan exists.
 
