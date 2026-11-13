@@ -33,6 +33,9 @@ export class BlnkLedgerAdapter implements LedgerPort {
     if (process.env.NODE_ENV === 'production') {
       if (!this.apiKey) throw new ServiceUnavailableException('BLNK_API_KEY is required when Blnk is used in production');
       if (!this.baseUrl.startsWith('https://')) throw new ServiceUnavailableException('Blnk must use HTTPS in production');
+      if (process.env.BLNK_SECURE_MODE !== 'true') {
+        throw new ServiceUnavailableException('BLNK_SECURE_MODE=true is required before using Blnk in production');
+      }
     }
   }
 
