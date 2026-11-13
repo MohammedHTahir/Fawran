@@ -30,6 +30,10 @@ export class BlnkLedgerAdapter implements LedgerPort {
   private config() {
     if (!this.ledgerId) throw new ServiceUnavailableException('Blnk is selected but BLNK_LEDGER_ID is not configured');
     if (!this.systemBalanceId) throw new ServiceUnavailableException('Blnk is selected but BLNK_SYSTEM_BALANCE_ID is not configured');
+    if (process.env.NODE_ENV === 'production') {
+      if (!this.apiKey) throw new ServiceUnavailableException('BLNK_API_KEY is required when Blnk is used in production');
+      if (!this.baseUrl.startsWith('https://')) throw new ServiceUnavailableException('Blnk must use HTTPS in production');
+    }
   }
 
   private async request(path: string, init: RequestInit = {}): Promise<Json> {
@@ -65,6 +69,10 @@ export class BlnkLedgerAdapter implements LedgerPort {
     if (known.rows[0]) return known.rows[0].blnk_balance_id as string;
 
     if (localAccountId === SYSTEM_PROVIDER_ACCOUNT) {
+      const remote = await this.request(`/balances/${encodeURIComponent(this.systemBalanceId)}`);
+      if (remote.ledger_id !== this.ledgerId || remote.currency !== 'EGP') {
+        throw new ServiceUnavailableException('Configured Blnk system balance must belong to BLNK_LEDGER_ID and use EGP');
+      }
       await this.pool.query(
         `insert into ledger_account_mappings (local_account_id, blnk_balance_id, ledger_id, currency)
          values ($1,$2,$3,'EGP') on conflict (local_account_id) do nothing`,
