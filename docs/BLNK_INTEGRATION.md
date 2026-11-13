@@ -97,6 +97,7 @@ If Blnk cannot provide the needed atomic uniqueness guarantee, implement a durab
 - `ledger_operations` stores request fingerprints, deterministic Blnk references, and operation states (`processing`, `pending`, `applied`, `failed`, `unknown`).
 - Transfers send integer piasters as `precise_amount` with `precision: 100`, `currency: EGP`, and `skip_queue: true`. Only `APPLIED` is returned as successful. `QUEUED` and `INFLIGHT` remain pending; ambiguous outcomes fail closed and require retry/reconciliation with the same key.
 - History reads applied transactions from both source and destination filters, deduplicates them, and signs amounts from the account perspective.
+- `npm run ledger:reconcile` inspects local `processing`, `pending`, and `unknown` operations by their original Blnk references. It only updates local state; it never submits another financial movement. Exit code 2 means pending/unknown records still need investigation.
 - The adapter uses the configured Blnk system balance for Fawran's `sys:provider` account. This balance must belong to the configured EGP ledger and must be a controlled test/settlement balance.
 
 ### Enabling locally (test data only)
@@ -105,7 +106,8 @@ If Blnk cannot provide the needed atomic uniqueness guarantee, implement a durab
 2. In `services/api/.env`, set `LEDGER_PROVIDER=blnk`, `BLNK_BASE_URL=http://127.0.0.1:5001`, `BLNK_LEDGER_ID=<your EGP ledger id>`, and `BLNK_SYSTEM_BALANCE_ID=<your controlled system balance id>`.
 3. Leave `BLNK_API_KEY` blank only for the local instance with secure mode disabled. Use a scoped secret key when secure mode is enabled; never commit it.
 4. Restart the API. New wallet reads lazily create Blnk balances and persist their mapping. Existing PostgreSQL balances are not migrated or copied; use fresh disposable test users and fund only through the test provider.
-5. To roll back, set `LEDGER_PROVIDER=postgres` and restart. Do not switch back and forth for accounts that have already received Blnk transactions: the PostgreSQL ledger will not contain those movements.
+5. To inspect uncertain operations, run `npm run ledger:reconcile` from `services/api` with the same Blnk environment and database connection. Review any pending/unknown records before retrying user requests.
+6. To roll back, set `LEDGER_PROVIDER=postgres` and restart. Do not switch back and forth for accounts that have already received Blnk transactions: the PostgreSQL ledger will not contain those movements.
 
 The automated adapter tests mock the Blnk HTTP API and cover durable account mapping, integer-piaster precision, idempotent replay, and changed-payload rejection. They do not replace a live integration test against the pinned Blnk container, particularly for balance filter response shape, transaction errors, timeout recovery, and the configured system balance.
 
