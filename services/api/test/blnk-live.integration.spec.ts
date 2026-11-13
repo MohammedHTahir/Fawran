@@ -51,13 +51,15 @@ suite('Blnk Core live integration (pinned local Core)', () => {
     await app?.close();
   });
 
-  it('creates a real Blnk balance, transfers exact piasters once, and reads history', async () => {
+  it('creates a real Blnk balance, handles concurrent idempotency, and reads history', async () => {
     expect(await adapter.balance(accountId)).toBe(0);
-    const first = await adapter.transfer({
+    const input = {
       from: 'sys:provider', to: accountId, amount: 1_237,
       idemKey: `ci-transfer-${randomUUID()}`, kind: 'integration_test',
-    });
-    expect(first.replayed).toBe(false);
+    };
+    const results = await Promise.all([adapter.transfer(input), adapter.transfer(input)]);
+    expect(results[0].txnId).toBe(results[1].txnId);
+    expect(results.filter(result => !result.replayed)).toHaveLength(1);
     expect(await adapter.balance(accountId)).toBe(1_237);
     const history = await adapter.history(accountId);
     console.log('Blnk integration history:', JSON.stringify(history));
@@ -68,5 +70,5 @@ suite('Blnk Core live integration (pinned local Core)', () => {
     });
     console.log('Blnk raw history filter:', JSON.stringify(rawFilter));
     expect(history.some(row => row.amount === 1_237)).toBe(true);
-  });
-});
+    await expect(adapter.transfer({ ...input, amount: 1_238 })).rejects.toThrow(/different request/);
+  });});
