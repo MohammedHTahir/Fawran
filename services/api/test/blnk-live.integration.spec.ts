@@ -1,0 +1,64 @@
+import { INestApplication } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+import { BlnkLedgerAdapter } from '../src/ledger/blnk-ledger.adapter';
+import { makeApp } from './helpers';
+
+const enabled = process.env.BLNK_INTEGRATION === '1';
+const suite = enabled ? describe : describe.skip;
+
+suite('Blnk Core live integration (pinned local Core)', () => {
+  let app: INestApplication;
+  let pool: any;
+  let adapter: BlnkLedgerAdapter;
+  let ledgerId: string;
+  let systemBalanceId: string;
+  let accountId: string;
+  const baseUrl = process.env.BLNK_BASE_URL ?? 'http://127.0.0.1:5001';
+
+  async function call(path: string, body?: any) {
+    const response = await fetch(`${baseUrl}${path}`, {
+      method: body ? 'POST' : 'GET',
+      headers: { 'content-type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(15_000),
+    });
+    const data = await response.json() as any;
+    if (!response.ok) throw new Error(`Blnk ${path} failed (${response.status}): ${JSON.stringify(data)}`);
+    return data;
+  }
+
+  beforeAll(async () => {
+    ({ app, pool } = await makeApp());
+    ledgerId = (await call('/ledgers', { name: `Fawran CI ${randomUUID()}` })).ledger_id;
+    systemBalanceId = (await call('/balances', { ledger_id: ledgerId, currency: 'EGP' })).balance_id;
+    const seed = await call('/transactions', {
+      precise_amount: 100_000, precision: 100, currency: 'EGP',
+      source: '@FundingPool', destination: systemBalanceId,
+      reference: `fawran-ci-seed-${randomUUID()}`,
+      description: 'Disposable CI funding', allow_overdraft: true, skip_queue: true,
+    });
+    expect(seed.status).toBe('APPLIED');
+    process.env.BLNK_BASE_URL = baseUrl;
+    process.env.BLNK_LEDGER_ID = ledgerId;
+    process.env.BLNK_SYSTEM_BALANCE_ID = systemBalanceId;
+    adapter = new BlnkLedgerAdapter(pool);
+    accountId = `acct_ci_${randomUUID()}`;
+    await pool.query('insert into accounts (id, kind) values ($1, $2)', [accountId, 'user']);
+  }, 90_000);
+
+  afterAll(async () => {
+    await app?.close();
+  });
+
+  it('creates a real Blnk balance, transfers exact piasters once, and reads history', async () => {
+    expect(await adapter.balance(accountId)).toBe(0);
+    const first = await adapter.transfer({
+      from: 'sys:provider', to: accountId, amount: 1_237,
+      idemKey: `ci-transfer-${randomUUID()}`, kind: 'integration_test',
+    });
+    expect(first.replayed).toBe(false);
+    expect(await adapter.balance(accountId)).toBe(1_237);
+    const history = await adapter.history(accountId);
+    expect(history.some(row => row.amount === 1_237)).toBe(true);
+  });
+});
