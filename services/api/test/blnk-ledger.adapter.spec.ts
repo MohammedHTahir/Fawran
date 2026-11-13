@@ -84,6 +84,16 @@ describe('BlnkLedgerAdapter', () => {
     expect(mapping.rows[0].blnk_balance_id).toBe('bln_user_1');
   });
 
+  it('fails closed for accounts with legacy PostgreSQL ledger activity', async () => {
+    const accountId = 'acct_legacy_test';
+    await pool.query('insert into accounts (id, kind) values ($1, $2)', [accountId, 'user']);
+    await pool.query('insert into ledger_entries (id, txn_id, account_id, amount) values ($1,$2,$3,$4)',
+      ['legacy-entry-1', 'legacy-txn-1', accountId, 500]);
+    await expect(adapter.balance(accountId)).rejects.toThrow(/PostgreSQL ledger history/);
+    const mapping = await pool.query('select 1 from ledger_account_mappings where local_account_id=$1', [accountId]);
+    expect(mapping.rows).toHaveLength(0);
+  });
+
   it('posts EGP piasters with precision 100 and replays the same idempotency key once', async () => {
     const from = 'sys:provider';
     const to = 'acct_blnk_test_1';
