@@ -31,9 +31,10 @@ suite('Blnk Core live integration (pinned local Core)', () => {
     ({ app, pool } = await makeApp());
     ledgerId = (await call('/ledgers', { name: `Fawran CI ${randomUUID()}` })).ledger_id;
     systemBalanceId = (await call('/balances', { ledger_id: ledgerId, currency: 'EGP' })).balance_id;
+    const fundingBalanceId = (await call('/balances', { ledger_id: ledgerId, currency: 'EGP' })).balance_id;
     const seed = await call('/transactions', {
       precise_amount: 100_000, precision: 100, currency: 'EGP',
-      source: '@FundingPool', destination: systemBalanceId,
+      source: fundingBalanceId, destination: systemBalanceId,
       reference: `fawran-ci-seed-${randomUUID()}`,
       description: 'Disposable CI funding', allow_overdraft: true, skip_queue: true,
     });
