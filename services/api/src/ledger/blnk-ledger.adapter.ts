@@ -93,11 +93,11 @@ export class BlnkLedgerAdapter implements LedgerPort {
     try {
       await client.query('begin');
       const account = await client.query(
-        `select a.id, a.owner_id, a.kind,
-          exists(select 1 from ledger_entries e where e.account_id=a.id) as has_legacy_ledger_activity
-         from accounts a where a.id=$1 for update`, [localAccountId]);
+        'select id, owner_id, kind from accounts where id=$1 for update', [localAccountId]);
       if (!account.rows[0]) throw new BadRequestException('Unknown account');
-      if (account.rows[0].has_legacy_ledger_activity) {
+      const legacyActivity = await client.query(
+        'select id from ledger_entries where account_id=$1 limit 1', [localAccountId]);
+      if (legacyActivity.rows.length > 0) {
         throw new ServiceUnavailableException(
           'This account has PostgreSQL ledger history; migrate and reconcile it before enabling Blnk for this wallet',
         );
