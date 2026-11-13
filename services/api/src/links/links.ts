@@ -39,11 +39,18 @@ export class LinksService {
     // Claim the link atomically so two payers can't both pay it.
     const claim = await this.pool.query(
       `update payment_links set status='processing' where code=$1 and status='open' returning id, merchant_account, amount`, [code]);
-    const link = claim.rows[0];
+    let link = claim.rows[0];
     if (!link) {
-      const exists = await this.pool.query('select status from payment_links where code=$1', [code]);
-      if (!exists.rows[0]) throw new NotFoundException();
-      throw new ConflictException(`Link is ${exists.rows[0].status}`);
+      // A previous request may have charged the PSP but timed out before the
+      // ledger post completed. Re-enter only the processing state with the same
+      // stable provider/ledger references; the PSP adapter must deduplicate them.
+      const existing = await this.pool.query(
+        `select id, merchant_account, amount, status from payment_links where code=$1`, [code]);
+      if (!existing.rows[0]) throw new NotFoundException();
+      if (existing.rows[0].status !== 'processing') {
+        throw new ConflictException(`Link is ${existing.rows[0].status}`);
+      }
+      link = existing.rows[0];
     }
     const amount = Number(link.amount);
     const ch = await this.provider.charge({ amount, method, reference: `link:${link.id}` });
