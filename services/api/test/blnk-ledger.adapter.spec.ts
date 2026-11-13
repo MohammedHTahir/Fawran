@@ -101,6 +101,22 @@ describe('BlnkLedgerAdapter', () => {
     expect(body.skip_queue).toBe(true);
   });
 
+  it('reconciles pending operations by reference without posting another transaction', async () => {
+    const key = 'adapter-pending-reconcile';
+    const reference = `fawran_${require('crypto').createHash('sha256').update(key).digest('hex')}`;
+    await pool.query(
+      `insert into ledger_operations (idempotency_key, request_fingerprint, blnk_reference, status)
+       values ($1,$2,$3,'pending')`, [key, 'fingerprint', reference]);
+    txns.set(reference, { transaction_id: 'txn_reconciled', reference, status: 'APPLIED', precise_amount: 250 });
+    const before = (global.fetch as jest.Mock).mock.calls.length;
+    const summary = await adapter.reconcilePending();
+    const after = (global.fetch as jest.Mock).mock.calls.length;
+    expect(summary.applied).toBe(1);
+    expect(after - before).toBe(1);
+    const saved = await pool.query('select status, blnk_transaction_id from ledger_operations where idempotency_key=$1', [key]);
+    expect(saved.rows[0]).toEqual({ status: 'applied', blnk_transaction_id: 'txn_reconciled' });
+  });
+
   it('rejects changed-payload reuse of an idempotency key', async () => {
     await expect(adapter.transfer({
       from: 'sys:provider', to: 'acct_blnk_test_1', amount: 251,
