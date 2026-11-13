@@ -228,6 +228,10 @@ export class BlnkLedgerAdapter implements LedgerPort {
       }
     }
 
+    if (!result) {
+      await this.markOperation(t.idemKey, 'unknown', undefined, 'Blnk transaction could not be resolved');
+      throw new ServiceUnavailableException('Blnk transaction outcome is unknown; retry with the same idempotency key');
+    }
     const status = String(result.status ?? '').toUpperCase();
     const txnId = result.transaction_id ?? result.id;
     if (status === 'APPLIED' && typeof txnId === 'string') {
