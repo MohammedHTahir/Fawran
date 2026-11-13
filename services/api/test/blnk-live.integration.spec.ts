@@ -62,13 +62,6 @@ suite('Blnk Core live integration (pinned local Core)', () => {
     expect(results.filter(result => !result.replayed)).toHaveLength(1);
     expect(await adapter.balance(accountId)).toBe(1_237);
     const history = await adapter.history(accountId);
-    console.log('Blnk integration history:', JSON.stringify(history));
-    const mapping = await pool.query('select blnk_balance_id from ledger_account_mappings where local_account_id=$1', [accountId]);
-    const rawFilter = await call('/transactions/filter', {
-      filters: [{ field: 'destination', operator: 'eq', value: mapping.rows[0].blnk_balance_id }],
-      sort_by: 'created_at', sort_order: 'desc', limit: 10,
-    });
-    console.log('Blnk raw history filter:', JSON.stringify(rawFilter));
     expect(history.some(row => row.amount === 1_237)).toBe(true);
     await expect(adapter.transfer({ ...input, amount: 1_238 })).rejects.toThrow(/different request/);
   });});
