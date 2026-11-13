@@ -46,7 +46,11 @@ The current PostgreSQL ledger remains active until the adapter passes the same c
 
 ## Idempotency and uncertain outcomes
 
-The published Blnk OpenAPI currently documents `POST /transactions` with a `reference`, but the reviewed schema does not expose an explicit idempotency-key header. Do not assume `reference` is unique or replay-safe.
+The Blnk Core documentation confirms that `reference` is the transaction idempotency key and that Core 0.13.2+ enforces a unique database index on it. A duplicate reference is discarded/rejected rather than guaranteed to return the original transaction response. The transaction can be looked up with `GET /transactions/reference/{reference}`; with the default queue, the processed record may use the `_q` suffix described in the transaction docs. Do not treat an HTTP duplicate response as proof of success until the original transaction and its final status have been retrieved.
+
+Blnk queues transactions by default and initially returns `QUEUED`; the worker later applies or rejects them. For deterministic low-volume API tests, `skip_queue: true` requests synchronous processing. Production integration must still handle timeouts and queued states explicitly.
+
+Blnk stores balance amounts in minor units. Fawran's integer-piaster convention maps to `precision: 100` for EGP if the currency is accepted by the pinned instance; all transactions for EGP must use the same precision. Use `precise_amount` rather than floating-point amounts.
 
 Before switching any endpoint:
 1. Verify the pinned Blnk version's transaction-reference uniqueness and duplicate behavior.
