@@ -89,7 +89,12 @@ export class BlnkLedgerAdapter implements LedgerPort {
         await client.query('commit');
         return again.rows[0].blnk_balance_id as string;
       }
-      const created = await this.request('/balances', {
+      const recovered = await this.request('/balances/filter', {
+        method: 'POST',
+        body: JSON.stringify({ filters: [{ field: 'meta_data.fawran_account_id', operator: 'eq', value: localAccountId }], limit: 1 }),
+      });
+      const recoveredId = recovered.data?.[0]?.balance_id ?? recovered.data?.[0]?.id;
+      const created = recoveredId ? { balance_id: recoveredId } : await this.request('/balances', {
         method: 'POST',
         body: JSON.stringify({
           ledger_id: this.ledgerId, currency: 'EGP',
@@ -191,6 +196,7 @@ export class BlnkLedgerAdapter implements LedgerPort {
     // Always resolve by the original stable reference before retrying. A previous
     // request may have reached Blnk even if the API process timed out.
     let result = await this.findByReference(reference);
+    const replayed = Boolean(result || op.status === 'applied');
     if (!result) {
       try {
         result = await this.request('/transactions', {
@@ -221,7 +227,7 @@ export class BlnkLedgerAdapter implements LedgerPort {
     const txnId = result.transaction_id ?? result.id;
     if (status === 'APPLIED' && typeof txnId === 'string') {
       await this.markOperation(t.idemKey, 'applied', txnId);
-      return { txnId, replayed: Boolean(op.status === 'applied' || result.reference === reference) };
+      return { txnId, replayed };
     }
     if (PENDING.has(status)) {
       await this.markOperation(t.idemKey, 'pending', typeof txnId === 'string' ? txnId : undefined);
