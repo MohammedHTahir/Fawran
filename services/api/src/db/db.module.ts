@@ -17,6 +17,24 @@ create table if not exists ledger_transactions (
 create table if not exists ledger_entries (
   id text primary key, txn_id text not null, account_id text not null, amount bigint not null);
 alter table ledger_transactions add column if not exists request_fingerprint text;
+create table if not exists ledger_account_mappings (
+  local_account_id text primary key references accounts(id),
+  blnk_balance_id text not null unique,
+  ledger_id text not null,
+  currency text not null default 'EGP',
+  created_at timestamptz not null default now()
+);
+create table if not exists ledger_operations (
+  idempotency_key text primary key,
+  request_fingerprint text not null,
+  blnk_reference text not null unique,
+  status text not null check (status in ('processing','pending','applied','failed','unknown')),
+  blnk_transaction_id text,
+  last_error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists ledger_operations_status_idx on ledger_operations(status, updated_at);
 create table if not exists payment_attempts (
   idempotency_key text primary key,
   user_id text not null,

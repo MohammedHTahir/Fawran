@@ -1,6 +1,6 @@
 # Blnk ledger integration decision
 
-Status: local Blnk infrastructure and disposable EGP ledger behavior verified. The NestJS `LedgerPort` boundary is now introduced; the PostgreSQL implementation remains the only registered provider. The Blnk adapter is not implemented or enabled.
+Status: Blnk adapter implemented behind an opt-in provider flag and covered by adapter tests. PostgreSQL remains the default provider. A real local Blnk end-to-end run and cutover validation are still required before enabling it.
 
 ## Decision
 
@@ -60,7 +60,7 @@ The NestJS `LedgerPort` interface now defines the application-facing account, ba
 - retrieve transaction history and status;
 - reconcile local references against Blnk.
 
-The current PostgreSQL ledger remains active until the adapter passes the same contract tests. Do not dual-write a movement to both ledgers.
+The current PostgreSQL ledger remains active by default. Select Blnk only with `LEDGER_PROVIDER=blnk`, `BLNK_LEDGER_ID`, and `BLNK_SYSTEM_BALANCE_ID` configured. The adapter uses Fawran's local account IDs and a durable mapping table; it never exposes Blnk IDs to the mobile app. It uses synchronous `skip_queue: true` posting, stable references derived from the Fawran idempotency key, and a durable operation state table. A timeout or pending result is not reported as success. On retry, the adapter first looks up the original Blnk reference. Do not dual-write a movement to both ledgers.
 
 ## Idempotency and uncertain outcomes
 
@@ -89,11 +89,33 @@ If Blnk cannot provide the needed atomic uniqueness guarantee, implement a durab
 6. Add parallel overdraft, duplicate request, changed-payload replay, timeout recovery, and reconciliation tests.
 7. Only then migrate disposable test data and consider a controlled test-only cutover.
 
+## Adapter implementation
+
+- `BlnkLedgerAdapter` implements the same `LedgerPort` as the PostgreSQL ledger.
+- `LEDGER_PROVIDER=postgres` is the default. `LEDGER_PROVIDER=blnk` is an explicit opt-in.
+- `ledger_account_mappings` stores local account ID to Blnk balance ID mappings. Fawran accounts with no legacy PostgreSQL ledger entries are mapped lazily on first use; accounts with legacy ledger activity fail closed until a separately reviewed migration/reconciliation is performed. Balance creation is serialized with a PostgreSQL row lock and recovers a remote balance by its Fawran account metadata before creating another.
+- `ledger_operations` stores request fingerprints, deterministic Blnk references, and operation states (`processing`, `pending`, `applied`, `failed`, `unknown`).
+- Transfers send integer piasters as `precise_amount` with `precision: 100`, `currency: EGP`, and `skip_queue: true`. Only `APPLIED` is returned as successful. `QUEUED` and `INFLIGHT` remain pending; ambiguous outcomes fail closed and require retry/reconciliation with the same key.
+- History reads applied transactions from both source and destination filters, deduplicates them, and signs amounts from the account perspective.
+- `npm run ledger:reconcile` inspects local `processing`, `pending`, and `unknown` operations by their original Blnk references. It only updates local state; it never submits another financial movement. Exit code 2 means pending/unknown records still need investigation.
+- The adapter uses the configured Blnk system balance for Fawran's `sys:provider` account. This balance must belong to the configured EGP ledger and must be a controlled test/settlement balance.
+
+### Enabling locally (test data only)
+
+1. Keep the local Blnk stack loopback-only and confirm the Blnk EGP ledger and system/funding balance exist.
+2. In `services/api/.env`, set `LEDGER_PROVIDER=blnk`, `BLNK_BASE_URL=http://127.0.0.1:5001`, `BLNK_LEDGER_ID=<your EGP ledger id>`, and `BLNK_SYSTEM_BALANCE_ID=<your controlled system balance id>`.
+3. Leave `BLNK_API_KEY` blank only for the local instance with secure mode disabled. Use a scoped secret key when secure mode is enabled; never commit it. Production mode additionally requires HTTPS, `BLNK_API_KEY`, and `BLNK_SECURE_MODE=true`; configure Blnk itself with secure mode enabled before setting this flag.
+4. Restart the API. New wallet reads lazily create Blnk balances and persist their mapping. Existing PostgreSQL balances are not migrated or copied. Accounts with legacy ledger entries are deliberately blocked from lazy mapping; use fresh disposable test users and fund only through the test provider.
+5. To inspect uncertain operations, run `npm run ledger:reconcile` from `services/api` with the same Blnk environment and database connection. Review any pending/unknown records before retrying user requests.
+6. To roll back, set `LEDGER_PROVIDER=postgres` and restart. Do not switch back and forth for accounts that have already received Blnk transactions: the PostgreSQL ledger will not contain those movements.
+
+The automated adapter tests mock the Blnk HTTP API and cover durable account mapping, integer-piaster precision, idempotent replay, and changed-payload rejection. They do not replace a live integration test against the pinned Blnk container, particularly for balance filter response shape, transaction errors, timeout recovery, and the configured system balance.
+
 ## Not in scope yet
 
 - No customer ledger data migration.
 - No switch of live Fawran wallet endpoints to Blnk.
-- No payment provider or InstaPay integration.
+- No licensed payment provider or InstaPay integration. The mock provider is now disabled in production and fails closed until a licensed provider adapter is configured.
 - No real funds, production credentials, or public deployment.
 - No removal of the existing ledger until a reviewed migration and rollback plan exists.
 

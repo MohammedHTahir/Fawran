@@ -34,6 +34,37 @@ jobs:
       - run: npm test -- --runInBand
         env:
           DATABASE_URL: postgres://fawran:fawran@localhost:5432/fawran_test
+  blnk-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: services/api/package-lock.json
+      - name: Start pinned Blnk Core stack
+        run: docker compose -f infra/blnk/docker-compose.yml up -d
+      - name: Wait for Blnk API
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:5001/ >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          docker compose -f infra/blnk/docker-compose.yml logs --tail=100 server worker
+          exit 1
+      - name: Install API dependencies
+        working-directory: services/api
+        run: npm ci
+      - name: Run live Blnk integration test
+        working-directory: services/api
+        env:
+          BLNK_INTEGRATION: '1'
+          BLNK_BASE_URL: http://127.0.0.1:5001
+        run: npm test -- --runInBand test/blnk-live.integration.spec.ts
+      - name: Stop Blnk stack
+        if: always()
+        run: docker compose -f infra/blnk/docker-compose.yml down -v
   mobile:
     runs-on: ubuntu-latest
     defaults:

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, ServiceUnavailableException } from '@nestjs/common';
 
 export const PAYMENT_PROVIDER = 'PAYMENT_PROVIDER';
 export type PayMethod = 'instapay' | 'card' | 'wallet';
@@ -17,5 +17,21 @@ export class MockProvider implements PaymentProvider {
   }
 }
 
-@Module({ providers: [{ provide: PAYMENT_PROVIDER, useClass: MockProvider }], exports: [PAYMENT_PROVIDER] })
+class UnconfiguredProductionPaymentProvider implements PaymentProvider {
+  async charge(): Promise<{ ok: boolean; providerRef: string }> {
+    throw new ServiceUnavailableException(
+      'No licensed payment provider is configured. Mock payments are disabled in production.',
+    );
+  }
+}
+
+@Module({
+  providers: [{
+    provide: PAYMENT_PROVIDER,
+    useFactory: (): PaymentProvider => process.env.NODE_ENV === 'production'
+      ? new UnconfiguredProductionPaymentProvider()
+      : new MockProvider(),
+  }],
+  exports: [PAYMENT_PROVIDER],
+})
 export class ProviderModule {}
