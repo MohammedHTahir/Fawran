@@ -6,7 +6,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/main.js",
     "dev": "ts-node src/main.ts",
-    "test": "jest --runInBand"
+    "test": "jest --runInBand",
+    "ledger:reconcile": "ts-node src/ledger/reconcile-blnk.ts"
   },
   "jest": {
     "preset": "ts-jest",
