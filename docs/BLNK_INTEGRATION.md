@@ -1,6 +1,6 @@
 # Blnk ledger integration decision
 
-Status: local Blnk infrastructure and disposable EGP ledger behavior verified; NestJS adapter is not implemented or enabled.
+Status: local Blnk infrastructure and disposable EGP ledger behavior verified. The NestJS `LedgerPort` boundary is now introduced; the PostgreSQL implementation remains the only registered provider. The Blnk adapter is not implemented or enabled.
 
 ## Decision
 
@@ -51,7 +51,7 @@ The balance reads and `precise_amount: 250` confirmed the expected piaster arith
 
 ## Required adapter boundary
 
-Create a `LedgerPort` abstraction in NestJS with operations for:
+The NestJS `LedgerPort` interface now defines the application-facing account, balance, transfer and history operations. The existing PostgreSQL `LedgerService` implements this interface and is registered as the current provider. Wallet and payment-link services now depend on the port token rather than the concrete PostgreSQL service. This is a refactor only: runtime behavior and the active ledger remain PostgreSQL. Next, implement the Blnk adapter and its durable mapping/state tables behind an explicit feature flag. The port must cover these operations:
 
 - create or retrieve a customer's EGP balance;
 - read an authoritative balance;
