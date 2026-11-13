@@ -1,0 +1,59 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: blnk
+      POSTGRES_PASSWORD: blnk-local-only
+      POSTGRES_DB: blnk
+    ports:
+      # Keep separate from Fawran's application PostgreSQL on 5432.
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - blnk_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blnk -d blnk"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7.2-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  server:
+    image: ghcr.io/blnkfinance/blnk:0.15.7
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["blnk migrate up && exec blnk start"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:5001:5001"
+    volumes:
+      - ./blnk.json:/blnk.json:ro
+
+  worker:
+    image: ghcr.io/blnkfinance/blnk:0.15.7
+    restart: unless-stopped
+    entrypoint: ["blnk", "workers"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      server:
+        condition: service_started
+    volumes:
+      - ./blnk.json:/blnk.json:ro
+
+volumes:
+  blnk_postgres_data:
