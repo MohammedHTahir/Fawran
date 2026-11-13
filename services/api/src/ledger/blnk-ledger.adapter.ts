@@ -65,6 +65,11 @@ export class BlnkLedgerAdapter implements LedgerPort {
     return body;
   }
 
+  private rows(response: Json): any[] {
+    if (Array.isArray(response)) return response;
+    return response?.data ?? response?.value ?? [];
+  }
+
   private async resolveBalance(localAccountId: string): Promise<string> {
     this.config();
     const known = await this.pool.query(
@@ -112,7 +117,7 @@ export class BlnkLedgerAdapter implements LedgerPort {
         method: 'POST',
         body: JSON.stringify({ filters: [{ field: 'meta_data.fawran_account_id', operator: 'eq', value: localAccountId }], limit: 1 }),
       });
-      const recoveredRows = recovered.data ?? recovered.value ?? [];
+      const recoveredRows = this.rows(recovered);
       const recoveredId = recoveredRows[0]?.balance_id ?? recoveredRows[0]?.id;
       const created = recoveredId ? { balance_id: recoveredId } : await this.request('/balances', {
         method: 'POST',
@@ -318,7 +323,7 @@ export class BlnkLedgerAdapter implements LedgerPort {
         sort_by: 'created_at', sort_order: 'desc', limit: pageSize,
       }) }),
     ]);
-    const rows = [...(debits.data ?? debits.value ?? []), ...(credits.data ?? credits.value ?? [])];
+    const rows = [...this.rows(debits), ...this.rows(credits)];
     const unique = new Map<string, any>();
     for (const row of rows) {
       const id = row.transaction_id ?? row.id;
