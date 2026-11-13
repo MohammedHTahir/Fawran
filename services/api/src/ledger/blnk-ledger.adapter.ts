@@ -51,7 +51,10 @@ export class BlnkLedgerAdapter implements LedgerPort {
     }
     const raw = await response.text();
     let body: Json = {};
-    try { body = raw ? JSON.parse(raw) : {}; } catch { body = { message: raw }; }
+    try {
+      const parsed = raw ? JSON.parse(raw) : {};
+      body = parsed && typeof parsed === 'object' ? parsed : {};
+    } catch { body = { message: raw }; }
     if (!response.ok) {
       const code = body.error_detail?.code ?? body.code;
       const message = body.error_detail?.message ?? body.error ?? body.message ?? `Blnk HTTP ${response.status}`;
