@@ -224,7 +224,7 @@ export class BlnkLedgerAdapter implements LedgerPort {
     // Always resolve by the original stable reference before retrying. A previous
     // request may have reached Blnk even if the API process timed out.
     let result = await this.findByReference(reference);
-    const replayed = Boolean(result || op.status === 'applied');
+    let replayed = Boolean(result || op.status === 'applied');
     if (!result) {
       try {
         result = await this.request('/transactions', {
@@ -248,6 +248,7 @@ export class BlnkLedgerAdapter implements LedgerPort {
             await this.markOperation(t.idemKey, 'unknown', undefined, 'Duplicate reference reported but lookup returned no transaction');
             throw new ServiceUnavailableException('Blnk reported a duplicate reference but the original transaction could not be resolved');
           }
+          replayed = true;
         } else {
           await this.markOperation(t.idemKey, 'unknown', undefined, String(error?.message ?? error));
           throw error;
