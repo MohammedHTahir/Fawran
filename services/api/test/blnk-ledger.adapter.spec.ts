@@ -42,7 +42,7 @@ describe('BlnkLedgerAdapter', () => {
       if (url.includes('/balances/') && method === 'GET') {
         const id = decodeURIComponent(url.split('/').pop()!);
         if (!remoteBalances.has(id)) return json({ error: 'not found' }, 404);
-        return json({ balance: remoteBalances.get(id) });
+        return json({ balance: remoteBalances.get(id), ledger_id: 'ldg_test', currency: 'EGP' });
       }
       if (url.includes('/transactions/reference/')) {
         const ref = decodeURIComponent(url.split('/').pop()!);
