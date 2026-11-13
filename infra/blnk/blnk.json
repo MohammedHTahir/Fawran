@@ -1,0 +1,16 @@
+{
+  "project_name": "Fawran Local Ledger",
+  "data_source": {
+    "dns": "postgres://blnk:blnk-local-only@postgres:5432/blnk?sslmode=disable"
+  },
+  "redis": {
+    "dns": "redis:6379"
+  },
+  "server": {
+    "secure": false,
+    "port": "5001"
+  },
+  "queue": {
+    "monitoring_port": "5004"
+  }
+}
