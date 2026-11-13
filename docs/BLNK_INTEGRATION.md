@@ -93,7 +93,7 @@ If Blnk cannot provide the needed atomic uniqueness guarantee, implement a durab
 
 - `BlnkLedgerAdapter` implements the same `LedgerPort` as the PostgreSQL ledger.
 - `LEDGER_PROVIDER=postgres` is the default. `LEDGER_PROVIDER=blnk` is an explicit opt-in.
-- `ledger_account_mappings` stores local account ID to Blnk balance ID mappings. Existing Fawran accounts are mapped lazily on first use; balance creation is serialized with a PostgreSQL row lock and recovers a remote balance by its Fawran account metadata before creating another.
+- `ledger_account_mappings` stores local account ID to Blnk balance ID mappings. Fawran accounts with no legacy PostgreSQL ledger entries are mapped lazily on first use; accounts with legacy ledger activity fail closed until a separately reviewed migration/reconciliation is performed. Balance creation is serialized with a PostgreSQL row lock and recovers a remote balance by its Fawran account metadata before creating another.
 - `ledger_operations` stores request fingerprints, deterministic Blnk references, and operation states (`processing`, `pending`, `applied`, `failed`, `unknown`).
 - Transfers send integer piasters as `precise_amount` with `precision: 100`, `currency: EGP`, and `skip_queue: true`. Only `APPLIED` is returned as successful. `QUEUED` and `INFLIGHT` remain pending; ambiguous outcomes fail closed and require retry/reconciliation with the same key.
 - History reads applied transactions from both source and destination filters, deduplicates them, and signs amounts from the account perspective.
@@ -105,7 +105,7 @@ If Blnk cannot provide the needed atomic uniqueness guarantee, implement a durab
 1. Keep the local Blnk stack loopback-only and confirm the Blnk EGP ledger and system/funding balance exist.
 2. In `services/api/.env`, set `LEDGER_PROVIDER=blnk`, `BLNK_BASE_URL=http://127.0.0.1:5001`, `BLNK_LEDGER_ID=<your EGP ledger id>`, and `BLNK_SYSTEM_BALANCE_ID=<your controlled system balance id>`.
 3. Leave `BLNK_API_KEY` blank only for the local instance with secure mode disabled. Use a scoped secret key when secure mode is enabled; never commit it.
-4. Restart the API. New wallet reads lazily create Blnk balances and persist their mapping. Existing PostgreSQL balances are not migrated or copied; use fresh disposable test users and fund only through the test provider.
+4. Restart the API. New wallet reads lazily create Blnk balances and persist their mapping. Existing PostgreSQL balances are not migrated or copied. Accounts with legacy ledger entries are deliberately blocked from lazy mapping; use fresh disposable test users and fund only through the test provider.
 5. To inspect uncertain operations, run `npm run ledger:reconcile` from `services/api` with the same Blnk environment and database connection. Review any pending/unknown records before retrying user requests.
 6. To roll back, set `LEDGER_PROVIDER=postgres` and restart. Do not switch back and forth for accounts that have already received Blnk transactions: the PostgreSQL ledger will not contain those movements.
 
