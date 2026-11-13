@@ -60,6 +60,7 @@ suite('Blnk Core live integration (pinned local Core)', () => {
     expect(first.replayed).toBe(false);
     expect(await adapter.balance(accountId)).toBe(1_237);
     const history = await adapter.history(accountId);
+    console.log('Blnk integration history:', JSON.stringify(history));
     expect(history.some(row => row.amount === 1_237)).toBe(true);
   });
 });
