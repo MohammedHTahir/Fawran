@@ -93,7 +93,8 @@ export class BlnkLedgerAdapter implements LedgerPort {
         method: 'POST',
         body: JSON.stringify({ filters: [{ field: 'meta_data.fawran_account_id', operator: 'eq', value: localAccountId }], limit: 1 }),
       });
-      const recoveredId = recovered.data?.[0]?.balance_id ?? recovered.data?.[0]?.id;
+      const recoveredRows = recovered.data ?? recovered.value ?? [];
+      const recoveredId = recoveredRows[0]?.balance_id ?? recoveredRows[0]?.id;
       const created = recoveredId ? { balance_id: recoveredId } : await this.request('/balances', {
         method: 'POST',
         body: JSON.stringify({
@@ -210,6 +211,10 @@ export class BlnkLedgerAdapter implements LedgerPort {
         });
         result = result.data ?? result;
       } catch (error: any) {
+        if (error?.code === 'TXN_INSUFFICIENT_FUNDS') {
+          await this.markOperation(t.idemKey, 'failed', undefined, 'Insufficient funds');
+          throw new HttpException('Insufficient funds', 422);
+        }
         if (error?.code === 'TXN_DUPLICATE_REFERENCE' || error?.status === 409) {
           result = await this.findByReference(reference);
           if (!result) {
@@ -254,7 +259,7 @@ export class BlnkLedgerAdapter implements LedgerPort {
         sort_by: 'created_at', sort_order: 'desc', limit: pageSize,
       }) }),
     ]);
-    const rows = [...(debits.data ?? []), ...(credits.data ?? [])];
+    const rows = [...(debits.data ?? debits.value ?? []), ...(credits.data ?? credits.value ?? [])];
     const unique = new Map<string, any>();
     for (const row of rows) {
       const id = row.transaction_id ?? row.id;
