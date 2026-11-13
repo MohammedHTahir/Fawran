@@ -322,14 +322,24 @@ export class BlnkLedgerAdapter implements LedgerPort {
     const unique = new Map<string, any>();
     for (const row of rows) {
       const id = row.transaction_id ?? row.id;
-      if (!id || unique.has(id) || row.status !== 'APPLIED') continue;
-      const precise = row.precise_amount;
-      if (!Number.isSafeInteger(precise)) continue;
+      if (!id || unique.has(id)) continue;
+      let detail = row;
+      // Some filter responses omit precise_amount. Never reconstruct piasters from
+      // the floating display amount; fetch the authoritative transaction record.
+      if (!Number.isSafeInteger(detail.precise_amount)) {
+        try {
+          const fetched = await this.request(`/transactions/${encodeURIComponent(id)}`);
+          detail = fetched.data ?? fetched;
+        } catch { continue; }
+      }
+      if (detail.status !== 'APPLIED' || !Number.isSafeInteger(detail.precise_amount)) continue;
+      const precise = detail.precise_amount;
+      const source = detail.source ?? row.source;
       unique.set(id, {
-        id, kind: row.meta_data?.fawran_kind ?? row.description ?? 'transfer',
-        memo: row.description ?? null,
-        createdAt: row.created_at,
-        amount: row.source === remoteId ? -precise : precise,
+        id, kind: detail.meta_data?.fawran_kind ?? row.meta_data?.fawran_kind ?? detail.description ?? row.description ?? 'transfer',
+        memo: detail.description ?? row.description ?? null,
+        createdAt: detail.created_at ?? row.created_at,
+        amount: source === remoteId ? -precise : precise,
       });
     }
     return [...unique.values()].sort((a, b) =>
