@@ -4,7 +4,7 @@ import { createHash } from 'crypto';
 import { Pool } from 'pg';
 import { AuthGuard, AuthModule, AuthUser, CurrentUser, normalizePhone } from '../auth/auth';
 import { PG_POOL, SYSTEM_PROVIDER_ACCOUNT } from '../db/db.module';
-import { LedgerService } from '../ledger/ledger.service';
+import { LEDGER_PORT, LedgerPort } from '../ledger/ledger.port';
 import { PAYMENT_PROVIDER, PaymentProvider, PayMethod, ProviderModule } from '../provider/provider';
 
 // Placeholder limits in piasters. Real limits must come from the licensed partner's policy and KYC tier.
@@ -28,7 +28,7 @@ function requireKey(h?: string) {
 @Controller()
 @UseGuards(AuthGuard)
 export class WalletController {
-  constructor(private ledger: LedgerService, @Inject(PG_POOL) private pool: Pool,
+  constructor(@Inject(LEDGER_PORT) private ledger: LedgerPort, @Inject(PG_POOL) private pool: Pool,
     @Inject(PAYMENT_PROVIDER) private provider: PaymentProvider) {}
 
   @Get('wallet')

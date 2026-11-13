@@ -2,20 +2,17 @@ import { HttpException, Inject, Injectable, BadRequestException } from '@nestjs/
 import { createHash, randomUUID } from 'crypto';
 import { Pool } from 'pg';
 import { PG_POOL } from '../db/db.module';
+import { LedgerPort } from './ledger.port';
+import { TransferInput } from './ledger.types';
 
 export class InsufficientFunds extends HttpException {
   constructor() { super('Insufficient funds', 422); }
 }
 
-export interface TransferInput {
-  from: string; to: string; amount: number; // amount in piasters (1 EGP = 100)
-  idemKey: string; kind: string; memo?: string;
-}
-
 /** Double-entry ledger. Every transaction has entries that sum to zero.
  *  accounts.balance is a cached value kept in the same DB transaction as the entries. */
 @Injectable()
-export class LedgerService {
+export class LedgerService implements LedgerPort {
   constructor(@Inject(PG_POOL) private pool: Pool) {}
 
   async createAccount(ownerId: string | null, kind = 'user'): Promise<string> {

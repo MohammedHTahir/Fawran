@@ -5,7 +5,7 @@ import { randomBytes, randomUUID } from 'crypto';
 import { Pool } from 'pg';
 import { AuthGuard, AuthModule, AuthUser, CurrentUser } from '../auth/auth';
 import { PG_POOL, SYSTEM_PROVIDER_ACCOUNT } from '../db/db.module';
-import { LedgerService } from '../ledger/ledger.service';
+import { LEDGER_PORT, LedgerPort } from '../ledger/ledger.port';
 import { PAYMENT_PROVIDER, PaymentProvider, PayMethod, ProviderModule } from '../provider/provider';
 
 class CreateLinkDto {
@@ -16,7 +16,7 @@ class PayDto { @IsIn(['instapay', 'card', 'wallet']) method: PayMethod; }
 
 @Injectable()
 export class LinksService {
-  constructor(@Inject(PG_POOL) private pool: Pool, private ledger: LedgerService,
+  constructor(@Inject(PG_POOL) private pool: Pool, @Inject(LEDGER_PORT) private ledger: LedgerPort,
     @Inject(PAYMENT_PROVIDER) private provider: PaymentProvider) {}
 
   async create(u: AuthUser, b: CreateLinkDto) {
