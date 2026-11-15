@@ -131,6 +131,7 @@ describe('API flow', () => {
       await request(app.getHttpServer()).post('/auth/verify').send({ phone, code: '111111' }).expect(401);
     }
     await request(app.getHttpServer()).post('/auth/verify').send({ phone, code: '111111' }).expect(429);
+    await pool.query('delete from otp_verify_rate_limits');
   });
 
   it('limits OTP verification attempts and rejects malformed codes', async () => {
