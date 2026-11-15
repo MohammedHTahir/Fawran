@@ -166,7 +166,7 @@ export class AuthService {
   }
 }
 class OtpDto { @IsString() phone: string; }
-class VerifyDto { @IsString() phone: string; @IsString() @Matches(/^\\d{6}$/) code: string; }
+class VerifyDto { @IsString() phone: string; @IsString() @Matches(/^[0-9]{6}$/) code: string; }
 
 @Controller('auth')
 export class AuthController {
