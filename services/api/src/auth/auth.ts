@@ -1,4 +1,4 @@
-import { BadRequestException, CanActivate, ExecutionContext, Inject, Injectable, Module, UnauthorizedException, TooManyRequestsException,
+import { BadRequestException, CanActivate, ExecutionContext, Inject, Injectable, Module, UnauthorizedException, HttpException, HttpStatus,
   Body, Controller, Post, Req, createParamDecorator } from '@nestjs/common';
 import { IsString, Matches } from 'class-validator';
 import { createHmac, randomInt, randomUUID, timingSafeEqual } from 'crypto';
@@ -180,7 +180,7 @@ export class AuthService {
       if (now - windowStart >= OTP_WINDOW_MS) { windowStart = now; count = 0; }
       if (count >= OTP_VERIFY_IP_LIMIT) {
         await c.query('commit');
-        throw new TooManyRequestsException('Too many verification attempts from this network; try again later');
+        throw new HttpException('Too many verification attempts from this network; try again later', HttpStatus.TOO_MANY_REQUESTS);
       }
       await c.query('update otp_verify_rate_limits set window_started_at=$2,request_count=$3 where ip_key=$1',
         [ipKey,new Date(windowStart).toISOString(),count+1]);
