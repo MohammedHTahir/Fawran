@@ -62,6 +62,22 @@ create table if not exists payment_links (
 );
 insert into accounts (id, kind) values ('sys:provider', 'system') on conflict (id) do nothing;
 `,
+}, {
+  version: 2,
+  name: 'durable_otp_challenges_and_rate_limits',
+  sql: `
+create table if not exists otp_challenges (
+  phone_key text primary key, code_digest text not null, expires_at timestamptz not null,
+  attempts integer not null default 0 check (attempts >= 0 and attempts <= 5),
+  created_at timestamptz not null default now()
+);
+create table if not exists otp_rate_limits (
+  scope text not null check (scope in ('phone','ip')), key_hash text not null,
+  window_started_at timestamptz not null, request_count integer not null default 0 check (request_count >= 0),
+  last_sent_at timestamptz, primary key(scope,key_hash)
+);
+create index if not exists otp_challenges_expiry_idx on otp_challenges(expires_at);
+`,
 }] as const;
 
 /** Run as an explicit deployment step, never during API startup. */
