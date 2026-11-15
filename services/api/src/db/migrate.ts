@@ -1,4 +1,4 @@
-import './config/load-env';
+import '../config/load-env';
 import { Pool } from 'pg';
 import { runMigrations } from './migrations';
 
