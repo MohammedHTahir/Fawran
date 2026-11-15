@@ -8,7 +8,8 @@
     "dev": "ts-node src/main.ts",
     "test": "jest --runInBand",
     "ledger:reconcile": "ts-node src/ledger/reconcile-blnk.ts",
-    "db:migrate": "ts-node src/db/migrate.ts"
+    "db:migrate": "ts-node src/db/migrate.ts",
+    "auth:cleanup": "ts-node src/auth/cleanup.ts"
   },
   "jest": {
     "preset": "ts-jest",
