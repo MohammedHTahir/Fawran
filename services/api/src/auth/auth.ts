@@ -309,8 +309,8 @@ export class AuthService {
 
   async sessions(user: AuthUser) {
     const r = await this.pool.query(
-      'select id,created_at,last_used_at,expires_at from auth_sessions where user_id=$1 and revoked_at is null and expires_at>now() order by created_at desc',
-      [user.id],
+      'select id,created_at,last_used_at,expires_at,(id=$2) as is_current from auth_sessions where user_id=$1 and revoked_at is null and expires_at>now() order by created_at desc',
+      [user.id,user.sessionId],
     );
     return r.rows;
   }
