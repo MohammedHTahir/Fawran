@@ -194,7 +194,7 @@ describe('API flow', () => {
       [otpKey,'a'.repeat(64)],
     );
     await pool.query(
-      "insert into otp_rate_limits(scope,key_hash,window_started_at,request_count) values('phone',$1,now()-interval '2 days',1)",
+      "update otp_rate_limits set window_started_at=now()-interval '2 days',request_count=1 where scope='phone' and key_hash=$1",
       [otpKey],
     );
     await pool.query(
