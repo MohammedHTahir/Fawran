@@ -78,6 +78,16 @@ create table if not exists otp_rate_limits (
 );
 create index if not exists otp_challenges_expiry_idx on otp_challenges(expires_at);
 `,
+}, {
+  version: 3,
+  name: 'otp_verification_ip_rate_limits',
+  sql: `
+create table if not exists otp_verify_rate_limits (
+  ip_key text primary key,
+  window_started_at timestamptz not null,
+  request_count integer not null default 0 check (request_count >= 0)
+);
+`,
 }] as const;
 
 /** Run as an explicit deployment step, never during API startup. */
