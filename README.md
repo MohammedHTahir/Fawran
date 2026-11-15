@@ -2,14 +2,15 @@
 
 Egypt-first wallet and merchant payments prototype. The repository contains a React Native + Expo mobile app and a NestJS API backed by PostgreSQL.
 
-> **Important:** This is a development prototype, not a licensed wallet, payment institution, bank, or live payment service. The payment provider is mocked and the OTP flow is development-only. Do not use real customer funds or personal data until the legal, regulatory, provider, security, and operational gates in `docs/PRODUCTION_READINESS.md` are complete.
+> **Important:** This is a development prototype, not a licensed wallet, payment institution, bank, or live payment service. Payment processing is mocked and production SMS delivery is intentionally unconfigured. Do not use real customer funds or production personal data until the legal, regulatory, licensed-partner, security, and operational gates in `docs/PRODUCTION_READINESS.md` are complete.
 
 ## Repository layout
 
 - `apps/mobile/` — React Native + Expo customer app (Arabic-first RTL, English option)
 - `services/api/` — NestJS API and PostgreSQL ledger
-- `docs/` — architecture, roadmap and production gates
-- `.github/workflows/` — API and Expo CI
+- `infra/blnk/` — optional pinned Blnk Core development stack
+- `docs/` — architecture, roadmap, integration notes, and production gates
+- `.github/workflows/` — API, mobile, and live Blnk integration CI
 
 ## API quick start
 
@@ -18,10 +19,11 @@ cd services/api
 cp .env.example .env
 docker compose up -d db
 npm ci
+npm run db:migrate
 npm run dev
 ```
 
-The API listens on `http://localhost:3000`. Development OTP is `000000`. The API loads `.env` automatically when started from this directory.
+The API listens on `http://localhost:3000`. Development OTP is `000000`; production OTP requires a separately configured `OTP_PEPPER` and an approved SMS provider adapter. The API loads `.env` automatically when started from this directory. Schema migrations are an explicit deployment step and are not run automatically at API startup.
 
 ## Mobile quick start
 
@@ -45,6 +47,6 @@ npx eas-cli@latest build:configure
 npx eas-cli@latest build --platform android --profile preview
 ```
 
-The preview Android profile creates an APK; production creates an AAB for Google Play. EAS Free has limited monthly builds and low-priority queues; verify current quotas before release planning.
+The preview Android profile creates an APK; production creates an AAB for Google Play. Verify current EAS quotas before release planning.
 
 All amounts are integer piasters (100 piasters = EGP 1). Provider methods are placeholders and must not be represented as real InstaPay/card/mobile-wallet integrations. See `docs/ROADMAP.md` and `docs/PRODUCTION_READINESS.md`.
