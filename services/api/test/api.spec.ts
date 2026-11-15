@@ -108,4 +108,28 @@ describe('API flow', () => {
     expect((await request(s).get(`/links/${link.code}`)).body.status).toBe('paid');
   });
 
+  it('persists OTP challenges, enforces resend cooldown, and consumes a code once', async () => {
+    const phone = '01000000031';
+    await request(app.getHttpServer()).post('/auth/otp').send({ phone }).expect(201);
+    const key = require('crypto').createHash('sha256').update(phone).digest('hex');
+    const challenge = (await pool.query('select phone_key, attempts, expires_at from otp_challenges where phone_key=$1',[key])).rows[0];
+    expect(challenge).toBeTruthy();
+    expect(challenge.attempts).toBe(0);
+    expect(new Date(challenge.expires_at).getTime()).toBeGreaterThan(Date.now());
+    await request(app.getHttpServer()).post('/auth/otp').send({ phone }).expect(400);
+    await request(app.getHttpServer()).post('/auth/verify').send({ phone, code: '000000' }).expect(201);
+    expect((await pool.query('select phone_key from otp_challenges where phone_key=$1',[key])).rows).toHaveLength(0);
+    await request(app.getHttpServer()).post('/auth/verify').send({ phone, code: '000000' }).expect(401);
+  });
+
+  it('limits OTP verification attempts and rejects malformed codes', async () => {
+    const phone = '01000000032';
+    await request(app.getHttpServer()).post('/auth/otp').send({ phone }).expect(201);
+    for (let i = 0; i < 5; i++) {
+      await request(app.getHttpServer()).post('/auth/verify').send({ phone, code: '111111' }).expect(401);
+    }
+    await request(app.getHttpServer()).post('/auth/verify').send({ phone, code: '000000' }).expect(401);
+    await request(app.getHttpServer()).post('/auth/verify').send({ phone, code: '123' }).expect(400);
+  });
+
 });
