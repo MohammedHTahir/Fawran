@@ -100,7 +100,17 @@ export async function runMigrations(pool: Pool): Promise<{ applied: number[]; cu
             'select constraint_name from information_schema.table_constraints where table_name = $1 and constraint_name = $2',
             [constraint.table, constraint.name],
           );
-          if (!present.rows.length) await client.query(constraint.sql);
+          if (!present.rows.length) {
+            try {
+              await client.query(constraint.sql);
+            } catch (error) {
+              // pg-mem can omit already-installed constraints from its
+              // information_schema view. Ignore only a duplicate of this
+              // exact named constraint; all other migration errors fail closed.
+              const message = error instanceof Error ? error.message : String(error);
+              if (!message.includes(constraint.name) || !/already exists|duplicate/i.test(message)) throw error;
+            }
+          }
         }
         await client.query('insert into schema_migrations(version,name) values($1,$2)', [migration.version, migration.name]);
         applied.push(migration.version);
