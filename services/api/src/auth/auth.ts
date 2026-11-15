@@ -1,7 +1,7 @@
 import { BadRequestException, CanActivate, ExecutionContext, Inject, Injectable, Module, UnauthorizedException,
   Body, Controller, Post, Req, createParamDecorator } from '@nestjs/common';
 import { IsString, Matches } from 'class-validator';
-import { createHash, randomInt, randomUUID, timingSafeEqual } from 'crypto';
+import { createHmac, randomInt, randomUUID, timingSafeEqual } from 'crypto';
 import * as jwt from 'jsonwebtoken';
 import { Pool } from 'pg';
 import { PG_POOL } from '../db/db.module';
@@ -56,7 +56,12 @@ const OTP_COOLDOWN_MS = 60_000;
 const OTP_PHONE_LIMIT = 3;
 const OTP_IP_LIMIT = 10;
 const OTP_MAX_ATTEMPTS = 5;
-const digest = (value: string) => createHash('sha256').update(value).digest('hex');
+const otpPepper = () => {
+  const value = process.env.OTP_PEPPER ?? (process.env.NODE_ENV === 'production' ? undefined : 'dev-only-otp-pepper-change-before-deployment');
+  if (!value || value.length < 32) throw new Error('OTP_PEPPER must be configured with at least 32 characters');
+  return value;
+};
+const digest = (value: string) => createHmac('sha256', otpPepper()).update(value).digest('hex');
 
 @Injectable()
 export class AuthService {
