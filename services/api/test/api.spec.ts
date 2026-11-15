@@ -1,5 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { createHmac } from 'crypto';
+import { cleanupAuthData } from '../src/auth/cleanup';
 import request from 'supertest';
 import { makeApp } from './helpers';
 
@@ -176,6 +177,37 @@ describe('API flow', () => {
     await request(app.getHttpServer()).post('/auth/logout').set(headers).send({}).expect(201);
     await request(app.getHttpServer()).get('/wallet').set(headers).expect(401);
     await request(app.getHttpServer()).post('/auth/refresh').send({ refreshToken:login.body.refreshToken }).expect(401);
+  });
+
+  it('prunes expired OTP data and long-expired sessions transactionally', async () => {
+    const phone = '01000000036';
+    await request(app.getHttpServer()).post('/auth/otp').send({ phone }).expect(201);
+    const login = await request(app.getHttpServer()).post('/auth/verify').send({ phone, code:'000000' }).expect(201);
+    await request(app.getHttpServer()).post('/auth/refresh').send({ refreshToken:login.body.refreshToken }).expect(201);
+    const session = (await pool.query('select id from auth_sessions where user_id=$1', [login.body.userId])).rows[0];
+    expect(session).toBeTruthy();
+    await pool.query("update auth_sessions set expires_at=now()-interval '91 days' where id=$1", [session.id]);
+
+    const otpKey = createHmac('sha256','dev-only-otp-pepper-change-before-deployment').update(phone).digest('hex');
+    await pool.query(
+      "insert into otp_challenges(phone_key,code_digest,expires_at,attempts) values($1,$2,now()-interval '2 days',0)",
+      [otpKey,'a'.repeat(64)],
+    );
+    await pool.query(
+      "update otp_rate_limits set window_started_at=now()-interval '2 days',request_count=1 where scope='phone' and key_hash=$1",
+      [otpKey],
+    );
+    await pool.query(
+      "insert into otp_verify_rate_limits(ip_key,window_started_at,request_count) values('old-test-ip',now()-interval '2 days',1)",
+    );
+
+    const result = await cleanupAuthData(pool);
+    expect(result.otpChallenges).toBeGreaterThanOrEqual(1);
+    expect(result.otpSendLimits).toBeGreaterThanOrEqual(1);
+    expect(result.otpVerifyLimits).toBeGreaterThanOrEqual(1);
+    expect(result.authSessions).toBeGreaterThanOrEqual(1);
+    expect((await pool.query('select id from auth_sessions where id=$1',[session.id])).rows).toHaveLength(0);
+    expect((await pool.query('select token_hash from auth_refresh_token_history where session_id=$1',[session.id])).rows).toHaveLength(0);
   });
 
 });

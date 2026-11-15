@@ -13,6 +13,7 @@ Fawran is a development prototype. It must not process real customer funds or co
 - [x] OTP challenge storage in PostgreSQL, HMAC-SHA256 digests using a dedicated pepper, five-minute expiry, one-time use, five-attempt limit, resend cooldown, and per-phone/per-IP request limits.
 - [x] Production payment and SMS adapters fail closed when not configured; mock provider and fixed development OTP are not used in production.
 - [x] Mobile API timeout and actionable connection diagnostics.
+- [x] Transactional cleanup command for expired OTP challenges, stale rate-limit rows, and long-expired/revoked auth sessions; schedule it daily in deployment.
 
 ## Financial correctness — still blocking
 

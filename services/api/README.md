@@ -14,6 +14,10 @@ npm run dev
 
 The API loads `.env` automatically when run from this service directory. Run `npm run db:migrate` after configuring the database and before the first API start or after deploying a new migration. API startup only verifies the schema version; it does not create or alter tables. Development OTP is `000000` (SMS is a console stub). OTP challenges and send limits are stored in PostgreSQL; codes are HMAC-SHA256 digests using `OTP_PEPPER` (production requires a separate random secret of at least 32 characters). Production OTP can use the optional Twilio Programmable Messaging adapter when `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and either `TWILIO_MESSAGING_SERVICE_SID` or `TWILIO_FROM` are configured; otherwise it fails closed. For Egypt, obtain an approved/pre-registered sender ID and confirm delivery with the target networks before enabling it. Configure secrets through managed secret storage, not source control. Migration 2 creates OTP challenge/send-limit tables; migration 3 adds verification-IP throttling; migration 4 creates rotating auth sessions. Access tokens last 15 minutes; refresh tokens last 30 days and are rotated on use. Reuse of a previously rotated refresh token revokes all of that user's sessions. The `SESSION_TOKEN_PEPPER` must be a separate random secret of at least 32 characters in production. An optional Twilio Programmable Messaging adapter is available for production once account credentials and a registered Egypt sender are configured.
 
+## Scheduled maintenance
+
+Run `npm run auth:cleanup` daily from the deployment scheduler. It transactionally removes OTP challenges and rate-limit rows older than one day, and sessions expired or revoked for more than 90 days. Refresh-token history is removed automatically when its parent session is pruned. Monitor the command exit code and output counts.
+
 ## API
 
 | Method | Path | Auth | Notes |
