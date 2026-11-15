@@ -51,7 +51,7 @@ describe('API flow', () => {
   });
 
   it('declined card top-up moves no money', async () => {
-    await request(app.getHttpServer()).post('/wallet/topup').set(h(bob, 'topup-bad1')).send({ amount: 1313, method: 'card' }).expect(400);
+    await request(app.getHttpServer()).post('/wallet/topup').set(h(bob, 'topup-bad1')).send({ amount: 1313, method: 'card' }).expect(402);
     expect((await request(app.getHttpServer()).get('/wallet').set(h(bob))).body.balance).toBe(20_000);
   });
 
@@ -123,7 +123,7 @@ describe('API flow', () => {
     expect(challenge).toBeTruthy();
     expect(challenge.attempts).toBe(0);
     expect(new Date(challenge.expires_at).getTime()).toBeGreaterThan(Date.now());
-    await request(app.getHttpServer()).post('/auth/otp').send({ phone }).expect(400);
+    await request(app.getHttpServer()).post('/auth/otp').send({ phone }).expect(429);
     await request(app.getHttpServer()).post('/auth/verify').send({ phone, code: '000000' }).expect(201);
     expect((await pool.query('select phone_key from otp_challenges where phone_key=$1',[key])).rows).toHaveLength(0);
     await request(app.getHttpServer()).post('/auth/verify').send({ phone, code: '000000' }).expect(401);

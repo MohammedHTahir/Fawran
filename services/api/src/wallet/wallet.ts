@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Headers, Inject, NotFoundException, Post, UseGuards, Module } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, Inject, NotFoundException, Post, UseGuards, Module, HttpException } from '@nestjs/common';
 import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { createHash } from 'crypto';
 import { Pool } from 'pg';
@@ -78,7 +78,7 @@ export class WalletController {
     if (!ch.ok) {
       await this.pool.query(
         `update payment_attempts set status='failed', updated_at=now() where idempotency_key=$1`, [k]);
-      throw new BadRequestException('Payment declined');
+      throw new HttpException('Payment declined', 402);
     }
 
     // Ledger idempotency is independent of the PSP idempotency key. If the process

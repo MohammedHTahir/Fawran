@@ -142,9 +142,9 @@ export class AuthService {
       this.resetWindow(phoneRate, now);
       this.resetWindow(ipRate, now);
       if (phoneRate.lastSentAt && now - phoneRate.lastSentAt < OTP_COOLDOWN_MS)
-        throw new BadRequestException('Please wait before requesting another code');
+        throw new HttpException('Please wait before requesting another code', HttpStatus.TOO_MANY_REQUESTS);
       if (phoneRate.count >= OTP_PHONE_LIMIT || ipRate.count >= OTP_IP_LIMIT)
-        throw new BadRequestException('Too many OTP requests; try again later');
+        throw new HttpException('Too many OTP requests; try again later', HttpStatus.TOO_MANY_REQUESTS);
       phoneRate.count++; phoneRate.lastSentAt = now; ipRate.count++;
       await this.saveRate(c, 'phone', phoneKey, phoneRate);
       await this.saveRate(c, 'ip', ipKey, ipRate);
