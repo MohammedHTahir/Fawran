@@ -1,4 +1,5 @@
 import { INestApplication } from '@nestjs/common';
+import { createHmac } from 'crypto';
 import request from 'supertest';
 import { makeApp } from './helpers';
 
@@ -111,7 +112,7 @@ describe('API flow', () => {
   it('persists OTP challenges, enforces resend cooldown, and consumes a code once', async () => {
     const phone = '01000000031';
     await request(app.getHttpServer()).post('/auth/otp').send({ phone }).expect(201);
-    const key = require('crypto').createHash('sha256').update(phone).digest('hex');
+    const key = createHmac('sha256', 'dev-only-otp-pepper-change-before-deployment').update(phone).digest('hex');
     const challenge = (await pool.query('select phone_key, attempts, expires_at from otp_challenges where phone_key=$1',[key])).rows[0];
     expect(challenge).toBeTruthy();
     expect(challenge.attempts).toBe(0);
