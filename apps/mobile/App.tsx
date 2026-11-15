@@ -17,6 +17,40 @@ const parseMoney = (s:string):number|null => { const m = /^(\d{1,7})(?:\.(\d{1,2
 const validPhone = (s:string) => /^(\+20|0020|0)1[0125]\d{8}$/.test(s.replace(/[\s-]/g,''));
 const makeKey = () => 'fawran-' + Date.now() + '-' + Math.random().toString(36).slice(2,12);
 let accessTokenCache: string | null = null;
+let refreshInFlight: Promise<string | null> | null = null;
+async function refreshAccessToken(): Promise<string | null> {
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      const refreshToken = await SecureStore.getItemAsync('fawran.refreshToken');
+      if (!refreshToken) return null;
+      let response: Response;
+      try {
+        response = await fetch(API + '/auth/refresh', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({refreshToken}), signal:AbortSignal.timeout(12_000)
+        });
+      } catch {
+        const e = new Error('network') as ApiError; e.status = 0; throw e;
+      }
+      if (!response.ok) {
+        accessTokenCache = null;
+        await Promise.all([
+          SecureStore.deleteItemAsync('fawran.token'),
+          SecureStore.deleteItemAsync('fawran.refreshToken')
+        ]);
+        return null;
+      }
+      const session = await response.json() as {token:string;refreshToken:string};
+      accessTokenCache = session.token;
+      await Promise.all([
+        SecureStore.setItemAsync('fawran.token',session.token),
+        SecureStore.setItemAsync('fawran.refreshToken',session.refreshToken)
+      ]);
+      return session.token;
+    })().finally(() => { refreshInFlight = null; });
+  }
+  return refreshInFlight;
+}
 async function api<T>(path:string, token?:string|null, method='GET', body?:unknown, idem?:string):Promise<T> {
   const send = async (authToken:string|null) => {
     try {
@@ -32,33 +66,8 @@ async function api<T>(path:string, token?:string|null, method='GET', body?:unkno
   const activeToken = accessTokenCache ?? token ?? null;
   let r = await send(activeToken);
   if (r.status === 401 && activeToken && path !== '/auth/refresh') {
-    const refreshToken = await SecureStore.getItemAsync('fawran.refreshToken');
-    if (refreshToken) {
-      let refreshed: Response;
-      try {
-        refreshed = await fetch(API + '/auth/refresh', {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({refreshToken}), signal:AbortSignal.timeout(12_000)
-        });
-      } catch {
-        const e = new Error('network') as ApiError; e.status = 0; throw e;
-      }
-      if (refreshed.ok) {
-        const session = await refreshed.json() as {token:string;refreshToken:string};
-        accessTokenCache = session.token;
-        await Promise.all([
-          SecureStore.setItemAsync('fawran.token',session.token),
-          SecureStore.setItemAsync('fawran.refreshToken',session.refreshToken)
-        ]);
-        r = await send(session.token);
-      } else {
-        accessTokenCache = null;
-        await Promise.all([
-          SecureStore.deleteItemAsync('fawran.token'),
-          SecureStore.deleteItemAsync('fawran.refreshToken')
-        ]);
-      }
-    }
+    const refreshedToken = await refreshAccessToken();
+    if (refreshedToken) r = await send(refreshedToken);
   }
   const data = await r.json().catch(()=>null);
   if (!r.ok) { const e = new Error(data?.message || 'Request failed') as ApiError; e.status = r.status; throw e; }
