@@ -20,6 +20,13 @@ Run `npm run ledger:verify` daily when using the PostgreSQL ledger. It compares 
 
 Run `npm run auth:cleanup` daily from the deployment scheduler. It transactionally removes OTP challenges and rate-limit rows older than one day, and sessions expired or revoked for more than 90 days. Refresh-token history is removed automatically when its parent session is pruned. Monitor the command exit code and output counts.
 
+## Health checks
+
+- `GET /health/live` — process liveness.
+- `GET /health/ready` — verifies PostgreSQL connectivity and that the expected schema migrations are installed; returns 503 when not ready.
+
+Use `/health/ready` for deployment readiness probes and `/health/live` for process liveness probes.
+
 ## API
 
 | Method | Path | Auth | Notes |

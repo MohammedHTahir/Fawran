@@ -13,6 +13,7 @@ Fawran is a development prototype. It must not process real customer funds or co
 - [x] OTP challenge storage in PostgreSQL, HMAC-SHA256 digests using a dedicated pepper, five-minute expiry, one-time use, five-attempt limit, resend cooldown, and per-phone/per-IP request limits.
 - [x] Production payment and SMS adapters fail closed when not configured; mock provider and fixed development OTP are not used in production.
 - [x] Mobile API timeout and actionable connection diagnostics.
+- [x] API liveness and readiness endpoints; readiness checks database connectivity and current schema migrations.
 - [x] Transactional cleanup command for expired OTP challenges, stale rate-limit rows, and long-expired/revoked auth sessions; schedule it daily in deployment.
 - [x] PostgreSQL ledger integrity verification command for cached-balance and double-entry invariants; schedule it daily and alert on mismatches. Blnk pending/unknown operation inspection remains a separate command.
 
@@ -21,16 +22,17 @@ Fawran is a development prototype. It must not process real customer funds or co
 - [ ] Integrate an appropriately licensed payment partner with durable provider-side idempotency, signed webhooks, provider event replay protection, settlement reports, and documented timeout/reversal semantics.
 - [ ] Complete a durable payment-intent state machine for pending, succeeded, failed, reversed, and under-review outcomes. Define webhook-before-response, charge-succeeded/ledger-failed, late success, and duplicate event behavior.
 - [ ] Build automated provider-to-ledger reconciliation, exception queues, operator tooling, alerts, and signed-off runbooks. Current Blnk reconciliation is an inspection command for pending/unknown ledger operations, not a complete PSP settlement reconciler.
-- [ ] Run scheduled ledger invariant and cached-balance reconciliation with alerting.
+- [x] Add a PostgreSQL ledger invariant command that checks cached balances and double-entry totals. Schedule it daily and alert on non-zero exit codes in the deployment environment.
 - [ ] Have a payments specialist review refunds, reversals, disputes, chargebacks, payouts, fees, holds, limits, and negative-balance policy.
 - [ ] Verify migration execution, legacy-data compatibility, backup/restore, and performance against production-like PostgreSQL data.
 
 ## Identity and security — still blocking
 
-- [ ] Select and configure an approved production SMS provider, register an appropriate sender, verify Egypt delivery and regulatory requirements, store credentials in managed secrets, and add delivery monitoring. The current production SMS adapter intentionally fails closed.
+- [ ] Configure the optional Twilio SMS adapter (or another approved provider), register an appropriate Egypt sender ID, verify delivery with target networks and regulatory requirements, store credentials in managed secrets, and add delivery monitoring. The adapter is implemented but remains disabled until credentials and an approved sender are configured.
 - [ ] Add device-bound and global OTP abuse controls, risk-based challenges, SMS pumping protections, and operational monitoring. Current controls are per phone and server-observed IP.
 - [ ] Configure trusted proxy hops explicitly before using forwarded client IPs; do not trust arbitrary forwarded headers.
-- [x] Implement rotating refresh tokens, active session listing/revocation, logout/current-session revocation, logout-all, and database-backed access-token invalidation.\n- [ ] Add device binding/metadata, risk-based session controls, secure recovery, and mobile device-management UI.
+- [x] Implement rotating refresh tokens, active session listing/revocation, logout/current-session revocation, logout-all, and database-backed access-token invalidation.
+- [ ] Add device binding/metadata, risk-based session controls, and secure recovery.
 - [ ] Configure JWT signing secrets and OTP pepper in managed secret storage, with rotation and incident procedures. Production `JWT_SECRET`, `OTP_PEPPER`, and `SESSION_TOKEN_PEPPER` must each be separate random values of at least 32 characters.
 - [ ] Complete a threat model, dependency review, SAST/DAST, secret scanning, and independent penetration test; remediate all critical/high findings.
 - [ ] Define PII encryption, access controls, retention/deletion, privacy notice, consent, and data-subject request workflows.
