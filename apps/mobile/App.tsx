@@ -17,12 +17,18 @@ const parseMoney = (s:string):number|null => { const m = /^(\d{1,7})(?:\.(\d{1,2
 const validPhone = (s:string) => /^(\+20|0020|0)1[0125]\d{8}$/.test(s.replace(/[\s-]/g,''));
 const makeKey = () => 'fawran-' + Date.now() + '-' + Math.random().toString(36).slice(2,12);
 let accessTokenCache: string | null = null;
+let onAuthExpired: (() => void) | null = null;
 let refreshInFlight: Promise<string | null> | null = null;
 async function refreshAccessToken(): Promise<string | null> {
   if (!refreshInFlight) {
     refreshInFlight = (async () => {
       const refreshToken = await SecureStore.getItemAsync('fawran.refreshToken');
-      if (!refreshToken) return null;
+      if (!refreshToken) {
+        accessTokenCache = null;
+        await SecureStore.deleteItemAsync('fawran.token');
+        onAuthExpired?.();
+        return null;
+      }
       let response: Response;
       try {
         response = await fetch(API + '/auth/refresh', {
@@ -38,6 +44,7 @@ async function refreshAccessToken(): Promise<string | null> {
           SecureStore.deleteItemAsync('fawran.token'),
           SecureStore.deleteItemAsync('fawran.refreshToken')
         ]);
+        onAuthExpired?.();
         return null;
       }
       const session = await response.json() as {token:string;refreshToken:string};
@@ -83,6 +90,7 @@ export default function App() {
   const [receipt,setReceipt] = useState<{amount:number;to:string;at:string}|null>(null);
   const topupAttempt = useRef<{fp:string;key:string}|null>(null), transferAttempt = useRef<{fp:string;key:string}|null>(null);
   const w = T[lang], rtl = lang === 'ar';
+  useEffect(() => { onAuthExpired = () => { setToken(null); setBalance(0); setTx([]); setPage('tabs'); }; return () => { onAuthExpired = null; }; }, []);
   useEffect(() => { (async()=>{ const [l,t,p] = await Promise.all([SecureStore.getItemAsync('fawran.lang'),SecureStore.getItemAsync('fawran.token'),SecureStore.getItemAsync('fawran.phone')]); if(l==='ar'||l==='en')setLang(l); if(t){accessTokenCache=t;setToken(t);setPhone(p||'');} })(); }, []);
   const refresh = async () => { if(!token)return; setRefreshing(true); try { const [a,b] = await Promise.all([api<{balance:number}>('/wallet',token),api<Tx[]>('/transactions',token)]); setBalance(a.balance);setTx(b); } catch(e) { if((e as ApiError).status===401){await SecureStore.deleteItemAsync('fawran.token');await SecureStore.deleteItemAsync('fawran.refreshToken');accessTokenCache=null;setToken(null);setBalance(0);setTx([]);} else Alert.alert(w.generic,errorText(e,w)); } finally {setRefreshing(false);} };
   useEffect(()=>{if(token)void refresh();},[token]);
