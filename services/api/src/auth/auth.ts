@@ -1,7 +1,7 @@
 import { BadRequestException, CanActivate, ExecutionContext, Inject, Injectable, Module, UnauthorizedException,
-  Body, Controller, Post, createParamDecorator } from '@nestjs/common';
-import { IsString } from 'class-validator';
-import { createHash, randomInt, randomUUID, timingSafeEqual } from 'crypto';
+  Body, Controller, Post, Req, createParamDecorator } from '@nestjs/common';
+import { IsString, Matches } from 'class-validator';
+import { createHmac, randomInt, randomUUID, timingSafeEqual } from 'crypto';
 import * as jwt from 'jsonwebtoken';
 import { Pool } from 'pg';
 import { PG_POOL } from '../db/db.module';
@@ -51,76 +51,132 @@ export class AuthGuard implements CanActivate {
   }
 }
 
+const OTP_WINDOW_MS = 15 * 60_000;
+const OTP_COOLDOWN_MS = 60_000;
+const OTP_PHONE_LIMIT = 3;
+const OTP_IP_LIMIT = 10;
+const OTP_MAX_ATTEMPTS = 5;
+const otpPepper = () => {
+  const value = process.env.OTP_PEPPER ?? (process.env.NODE_ENV === 'production' ? undefined : 'dev-only-otp-pepper-change-before-deployment');
+  if (!value || value.length < 32) throw new Error('OTP_PEPPER must be configured with at least 32 characters');
+  return value;
+};
+const digest = (value: string) => createHmac('sha256', otpPepper()).update(value).digest('hex');
+
 @Injectable()
 export class AuthService {
-  // Development-only process memory. Production requires a shared OTP store
-  // (Redis/DB) before scaling to multiple API instances.
-  private otps = new Map<string, { digest: string; exp: number; tries: number; sentAt: number; windowStart: number; sends: number }>();
   constructor(@Inject(PG_POOL) private pool: Pool, @Inject(SMS) private sms: SmsPort) {}
 
-  async requestOtp(phoneRaw: string) {
+  async requestOtp(phoneRaw: string, requesterIp: string) {
     const phone = normalizePhone(phoneRaw);
     const now = Date.now();
-    const prior = this.otps.get(phone);
-    const windowStart = prior && now - prior.windowStart < 15 * 60_000 ? prior.windowStart : now;
-    const sends = prior && windowStart === prior.windowStart ? prior.sends : 0;
-    if (prior && now - prior.sentAt < 60_000) throw new BadRequestException('Please wait before requesting another code');
-    if (sends >= 3) throw new BadRequestException('Too many OTP requests; try again later');
+    const phoneKey = digest(phone);
+    const ipKey = digest(requesterIp || 'unknown');
     const code = process.env.NODE_ENV === 'production' ? String(randomInt(100000, 1000000)) : '000000';
-    const digest = createHash('sha256').update(`${phone}:${code}`).digest('hex');
-    await this.sms.send(phone, `Your Fawran code: ${code}`);
-    this.otps.set(phone, { digest, exp: now + 5 * 60_000, tries: 0, sentAt: now, windowStart, sends: sends + 1 });
+    const codeDigest = digest(`${phone}:${code}`);
+    const c = await this.pool.connect();
+    try {
+      await c.query('begin');
+      const phoneRate = await this.lockRate(c, 'phone', phoneKey, now);
+      const ipRate = await this.lockRate(c, 'ip', ipKey, now);
+      this.resetWindow(phoneRate, now);
+      this.resetWindow(ipRate, now);
+      if (phoneRate.lastSentAt && now - phoneRate.lastSentAt < OTP_COOLDOWN_MS)
+        throw new BadRequestException('Please wait before requesting another code');
+      if (phoneRate.count >= OTP_PHONE_LIMIT || ipRate.count >= OTP_IP_LIMIT)
+        throw new BadRequestException('Too many OTP requests; try again later');
+      phoneRate.count++; phoneRate.lastSentAt = now; ipRate.count++;
+      await this.saveRate(c, 'phone', phoneKey, phoneRate);
+      await this.saveRate(c, 'ip', ipKey, ipRate);
+      await c.query(`insert into otp_challenges(phone_key,code_digest,expires_at,attempts,created_at)
+        values($1,$2,$3,0,$4) on conflict(phone_key) do update set code_digest=excluded.code_digest,
+        expires_at=excluded.expires_at,attempts=0,created_at=excluded.created_at`,
+        [phoneKey, codeDigest, new Date(now + 5 * 60_000).toISOString(), new Date(now).toISOString()]);
+      await c.query('commit');
+    } catch (e) {
+      await c.query('rollback').catch(() => undefined);
+      throw e;
+    } finally { c.release(); }
+    try { await this.sms.send(phone, `Your Fawran code: ${code}`); }
+    catch (e) {
+      await this.pool.query('delete from otp_challenges where phone_key=$1 and code_digest=$2', [phoneKey, codeDigest]);
+      throw e;
+    }
+  }
+
+  private async lockRate(c: any, scope: string, key: string, now: number) {
+    await c.query(`insert into otp_rate_limits(scope,key_hash,window_started_at,request_count,last_sent_at)
+      values($1,$2,$3,0,null) on conflict(scope,key_hash) do nothing`, [scope,key,new Date(now).toISOString()]);
+    const row = (await c.query('select window_started_at,request_count,last_sent_at from otp_rate_limits where scope=$1 and key_hash=$2 for update',[scope,key])).rows[0];
+    if (!row) throw new Error('Unable to lock OTP rate limit');
+    return { windowStartedAt:new Date(row.window_started_at).getTime(), count:Number(row.request_count), lastSentAt:row.last_sent_at ? new Date(row.last_sent_at).getTime() : 0 };
+  }
+  private resetWindow(rate: any, now: number) {
+    if (now-rate.windowStartedAt >= OTP_WINDOW_MS) { rate.windowStartedAt=now; rate.count=0; rate.lastSentAt=0; }
+  }
+  private async saveRate(c:any,scope:string,key:string,rate:any) {
+    await c.query('update otp_rate_limits set window_started_at=$3,request_count=$4,last_sent_at=$5 where scope=$1 and key_hash=$2',
+      [scope,key,new Date(rate.windowStartedAt).toISOString(),rate.count,rate.lastSentAt ? new Date(rate.lastSentAt).toISOString() : null]);
   }
 
   async verify(phoneRaw: string, code: string) {
     const phone = normalizePhone(phoneRaw);
-    const o = this.otps.get(phone);
-    if (!o || o.exp < Date.now() || o.tries >= 5) throw new UnauthorizedException('Code expired, request a new one');
-    o.tries++;
-    const supplied = createHash('sha256').update(`${phone}:${code}`).digest();
-    const expected = Buffer.from(o.digest, 'hex');
-    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
-      throw new UnauthorizedException('Wrong code');
-    }
-    this.otps.delete(phone);
+    const phoneKey = digest(phone);
+    const c = await this.pool.connect();
+    try {
+      await c.query('begin');
+      const row = (await c.query('select code_digest,expires_at,attempts from otp_challenges where phone_key=$1 for update',[phoneKey])).rows[0];
+      if (!row || new Date(row.expires_at).getTime() <= Date.now() || Number(row.attempts) >= OTP_MAX_ATTEMPTS) {
+        if (row) await c.query('delete from otp_challenges where phone_key=$1',[phoneKey]);
+        await c.query('commit');
+        throw new UnauthorizedException('Code expired, request a new one');
+      }
+      const supplied = Buffer.from(digest(`${phone}:${code}`),'hex');
+      const expected = Buffer.from(row.code_digest,'hex');
+      const valid = supplied.length===expected.length && timingSafeEqual(supplied,expected);
+      if (!valid) {
+        const attempts=Number(row.attempts)+1;
+        if (attempts>=OTP_MAX_ATTEMPTS) await c.query('delete from otp_challenges where phone_key=$1',[phoneKey]);
+        else await c.query('update otp_challenges set attempts=$2 where phone_key=$1',[phoneKey,attempts]);
+        await c.query('commit');
+        throw new UnauthorizedException('Wrong code');
+      }
+      await c.query('delete from otp_challenges where phone_key=$1',[phoneKey]);
+      await c.query('commit');
+    } catch(e) {
+      await c.query('rollback').catch(()=>undefined);
+      throw e;
+    } finally { c.release(); }
     const { id, accountId } = await this.findOrCreate(phone);
-    return { token: jwt.sign({ sub: id, acc: accountId }, secret(), { expiresIn: '1h' }), userId: id };
+    return { token: jwt.sign({ sub:id, acc:accountId }, secret(), { expiresIn:'1h' }), userId:id };
   }
 
   private async findOrCreate(phone: string) {
     const c = await this.pool.connect();
     try {
       await c.query('begin');
-      let r = (await c.query(
-        `select u.id, a.id as acc from users u join accounts a on a.owner_id = u.id where u.phone=$1 for update`, [phone])).rows[0];
+      let r = (await c.query(`select u.id,a.id as acc from users u join accounts a on a.owner_id=u.id where u.phone=$1 for update`,[phone])).rows[0];
       if (!r) {
-        const candidateId = randomUUID();
-        await c.query('insert into users (id, phone) values ($1,$2) on conflict (phone) do nothing', [candidateId, phone]);
-        const user = (await c.query('select id from users where phone=$1 for update', [phone])).rows[0];
+        await c.query('insert into users(id,phone) values($1,$2) on conflict(phone) do nothing',[randomUUID(),phone]);
+        const user=(await c.query('select id from users where phone=$1 for update',[phone])).rows[0];
         if (!user) throw new Error('Unable to create user');
-        await c.query(
-          'insert into accounts (id, owner_id, kind) values ($1,$2,$3) on conflict (owner_id) do nothing',
-          [randomUUID(), user.id, 'user']);
-        r = (await c.query(
-          `select u.id, a.id as acc from users u join accounts a on a.owner_id = u.id where u.phone=$1`, [phone])).rows[0];
+        await c.query('insert into accounts(id,owner_id,kind) values($1,$2,$3) on conflict(owner_id) do nothing',[randomUUID(),user.id,'user']);
+        r=(await c.query('select u.id,a.id as acc from users u join accounts a on a.owner_id=u.id where u.phone=$1',[phone])).rows[0];
       }
       if (!r) throw new Error('Unable to create wallet account');
       await c.query('commit');
-      return { id: r.id, accountId: r.acc };
-    } catch (e) {
-      await c.query('rollback').catch(() => undefined);
-      throw e;
-    } finally { c.release(); }
+      return { id:r.id, accountId:r.acc };
+    } catch(e) { await c.query('rollback').catch(()=>undefined); throw e; }
+    finally { c.release(); }
   }
 }
-
 class OtpDto { @IsString() phone: string; }
-class VerifyDto { @IsString() phone: string; @IsString() code: string; }
+class VerifyDto { @IsString() phone: string; @IsString() @Matches(/^[0-9]{6}$/) code: string; }
 
 @Controller('auth')
 export class AuthController {
   constructor(private auth: AuthService) {}
-  @Post('otp') async otp(@Body() b: OtpDto) { await this.auth.requestOtp(b.phone); return { sent: true }; }
+  @Post('otp') async otp(@Body() b: OtpDto, @Req() req: any) { await this.auth.requestOtp(b.phone, req.ip ?? req.socket?.remoteAddress ?? 'unknown'); return { sent: true }; }
   @Post('verify') verify(@Body() b: VerifyDto) { return this.auth.verify(b.phone, b.code); }
 }
 

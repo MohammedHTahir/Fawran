@@ -62,6 +62,22 @@ create table if not exists payment_links (
 );
 insert into accounts (id, kind) values ('sys:provider', 'system') on conflict (id) do nothing;
 `,
+}, {
+  version: 2,
+  name: 'durable_otp_challenges_and_rate_limits',
+  sql: `
+create table if not exists otp_challenges (
+  phone_key text primary key, code_digest text not null, expires_at timestamptz not null,
+  attempts integer not null default 0 check (attempts >= 0 and attempts <= 5),
+  created_at timestamptz not null default now()
+);
+create table if not exists otp_rate_limits (
+  scope text not null check (scope in ('phone','ip')), key_hash text not null,
+  window_started_at timestamptz not null, request_count integer not null default 0 check (request_count >= 0),
+  last_sent_at timestamptz, primary key(scope,key_hash)
+);
+create index if not exists otp_challenges_expiry_idx on otp_challenges(expires_at);
+`,
 }] as const;
 
 /** Run as an explicit deployment step, never during API startup. */
@@ -84,7 +100,17 @@ export async function runMigrations(pool: Pool): Promise<{ applied: number[]; cu
             'select constraint_name from information_schema.table_constraints where table_name = $1 and constraint_name = $2',
             [constraint.table, constraint.name],
           );
-          if (!present.rows.length) await client.query(constraint.sql);
+          if (!present.rows.length) {
+            try {
+              await client.query(constraint.sql);
+            } catch (error) {
+              // pg-mem can omit already-installed constraints from its
+              // information_schema view. Ignore only a duplicate of this
+              // exact named constraint; all other migration errors fail closed.
+              const message = error instanceof Error ? error.message : String(error);
+              if (!message.includes(constraint.name) || !/already exists|duplicate/i.test(message)) throw error;
+            }
+          }
         }
         await client.query('insert into schema_migrations(version,name) values($1,$2)', [migration.version, migration.name]);
         applied.push(migration.version);
