@@ -35,6 +35,49 @@ class UnconfiguredProductionSms implements SmsPort {
   async send() { throw new Error('No production SMS adapter configured. Configure an approved SMS provider before enabling OTP.'); }
 }
 
+/** Optional Twilio Programmable Messaging adapter. Egypt sender registration is
+ * an external prerequisite; this class does not bypass carrier or legal approval. */
+export class TwilioSms implements SmsPort {
+  static isConfigured() {
+    return Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN &&
+      (process.env.TWILIO_MESSAGING_SERVICE_SID || process.env.TWILIO_FROM));
+  }
+
+  async send(phone: string, text: string) {
+    const sid = process.env.TWILIO_ACCOUNT_SID;
+    const token = process.env.TWILIO_AUTH_TOKEN;
+    const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID;
+    const from = process.env.TWILIO_FROM;
+    if (!sid || !token || (!messagingServiceSid && !from)) {
+      throw new Error('Twilio SMS is not fully configured');
+    }
+    const e164 = phone.startsWith('+') ? phone : `+20${phone.replace(/^0/, '')}`;
+    const form = new URLSearchParams({ To: e164, Body: text });
+    if (messagingServiceSid) form.set('MessagingServiceSid', messagingServiceSid);
+    else form.set('From', from as string);
+    if (process.env.TWILIO_STATUS_CALLBACK_URL) {
+      form.set('StatusCallback', process.env.TWILIO_STATUS_CALLBACK_URL);
+    }
+    const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(sid)}/Messages.json`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString('base64')}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: form.toString(),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) {
+      let providerCode = 'unknown';
+      try {
+        const payload = await response.json() as { code?: number };
+        if (payload.code) providerCode = String(payload.code);
+      } catch { /* Do not surface provider response bodies or phone numbers. */ }
+      throw new Error(`Twilio SMS request failed (HTTP ${response.status}, code ${providerCode})`);
+    }
+  }
+}
+
 export interface AuthUser { id: string; accountId: string; }
 export const CurrentUser = createParamDecorator((_d, ctx: ExecutionContext): AuthUser => ctx.switchToHttp().getRequest().user);
 
@@ -200,9 +243,9 @@ export class AuthController {
   controllers: [AuthController],
   providers: [AuthService, AuthGuard, {
     provide: SMS,
-    useFactory: (): SmsPort => process.env.NODE_ENV === 'production'
-      ? new UnconfiguredProductionSms()
-      : new ConsoleSms(),
+    useFactory: (): SmsPort => process.env.NODE_ENV !== 'production'
+      ? new ConsoleSms()
+      : TwilioSms.isConfigured() ? new TwilioSms() : new UnconfiguredProductionSms(),
   }],
   exports: [AuthGuard, AuthService],
 })
