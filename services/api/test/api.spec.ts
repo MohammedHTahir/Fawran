@@ -66,4 +66,46 @@ describe('API flow', () => {
     await request(s).post(`/links/${link.code}/pay`).send({ method: 'card' }).expect(402);
     expect((await request(s).get(`/links/${link.code}`)).body.status).toBe('open');
   });
+
+  it('recovers a top-up after the ledger posts but before the payment attempt is marked succeeded', async () => {
+    const s = app.getHttpServer();
+    const key = 'topup-crash-recovery';
+    const before = (await request(s).get('/wallet').set(h(alice))).body.balance;
+    const first = await request(s).post('/wallet/topup').set(h(alice, key))
+      .send({ amount: 4_200, method: 'instapay' }).expect(201);
+    const user = (await pool.query('select id from users where phone=$1', ['01000000001'])).rows[0];
+    await pool.query(
+      "update payment_attempts set status='processing', ledger_txn_id=null where idempotency_key=$1",
+      [`${user.id}:topup:${key}`],
+    );
+
+    const recovered = await request(s).post('/wallet/topup').set(h(alice, key))
+      .send({ amount: 4_200, method: 'instapay' }).expect(201);
+    expect(recovered.body.txnId).toBe(first.body.txnId);
+    expect(recovered.body.replayed).toBe(true);
+    expect((await request(s).get('/wallet').set(h(alice))).body.balance).toBe(before + 4_200);
+    const attempt = (await pool.query(
+      'select status, ledger_txn_id from payment_attempts where idempotency_key=$1',
+      [`${user.id}:topup:${key}`],
+    )).rows[0];
+    expect(attempt).toEqual({ status: 'succeeded', ledger_txn_id: first.body.txnId });
+  });
+
+  it('recovers a payment link after the ledger posts but before the link is marked paid', async () => {
+    const s = app.getHttpServer();
+    const before = (await request(s).get('/wallet').set(h(bob))).body.balance;
+    const link = (await request(s).post('/links').set(h(bob))
+      .send({ amount: 3_300, description: 'Crash recovery test' }).expect(201)).body;
+    const first = await request(s).post(`/links/${link.code}/pay`)
+      .send({ method: 'instapay' }).expect(201);
+
+    await pool.query("update payment_links set status='processing', paid_txn=null where code=$1", [link.code]);
+    const recovered = await request(s).post(`/links/${link.code}/pay`)
+      .send({ method: 'instapay' }).expect(201);
+
+    expect(recovered.body).toEqual({ status: 'paid', txnId: first.body.txnId });
+    expect((await request(s).get('/wallet').set(h(bob))).body.balance).toBe(before + 3_300);
+    expect((await request(s).get(`/links/${link.code}`)).body.status).toBe('paid');
+  });
+
 });
