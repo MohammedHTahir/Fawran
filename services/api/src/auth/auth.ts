@@ -1,7 +1,7 @@
 import { BadRequestException, CanActivate, ExecutionContext, Inject, Injectable, Module, UnauthorizedException, HttpException, HttpStatus,
-  Body, Controller, Post, Req, createParamDecorator } from '@nestjs/common';
-import { IsString, Matches } from 'class-validator';
-import { createHmac, randomInt, randomUUID, timingSafeEqual } from 'crypto';
+  Body, Controller, Post, Req, Get, Delete, Param, UseGuards, createParamDecorator } from '@nestjs/common';
+import { IsString, Matches, MinLength } from 'class-validator';
+import { createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'crypto';
 import * as jwt from 'jsonwebtoken';
 import { Pool } from 'pg';
 import { PG_POOL } from '../db/db.module';
@@ -78,17 +78,24 @@ export class TwilioSms implements SmsPort {
   }
 }
 
-export interface AuthUser { id: string; accountId: string; }
+export interface AuthUser { id: string; accountId: string; sessionId: string; }
 export const CurrentUser = createParamDecorator((_d, ctx: ExecutionContext): AuthUser => ctx.switchToHttp().getRequest().user);
 
 @Injectable()
 export class AuthGuard implements CanActivate {
-  canActivate(ctx: ExecutionContext) {
+  constructor(@Inject(PG_POOL) private pool: Pool) {}
+  async canActivate(ctx: ExecutionContext) {
     const req = ctx.switchToHttp().getRequest();
     const h: string = req.headers['authorization'] ?? '';
     try {
       const p: any = jwt.verify(h.replace(/^Bearer /, ''), secret());
-      req.user = { id: p.sub, accountId: p.acc } as AuthUser;
+      if (!p.sid || !p.sub || !p.acc) throw new UnauthorizedException();
+      const active = await this.pool.query(
+        'select id from auth_sessions where id=$1 and user_id=$2 and revoked_at is null and expires_at > now()',
+        [p.sid, p.sub],
+      );
+      if (!active.rows.length) throw new UnauthorizedException();
+      req.user = { id:p.sub, accountId:p.acc, sessionId:p.sid } as AuthUser;
       return true;
     } catch { throw new UnauthorizedException(); }
   }
@@ -106,6 +113,15 @@ const otpPepper = () => {
   return value;
 };
 const digest = (value: string) => createHmac('sha256', otpPepper()).update(value).digest('hex');
+
+const sessionPepper = () => {
+  const value = process.env.SESSION_TOKEN_PEPPER ?? (process.env.NODE_ENV === 'production' ? undefined : 'dev-only-session-token-pepper-change-before-deployment');
+  if (!value || value.length < 32) throw new Error('SESSION_TOKEN_PEPPER must be configured with at least 32 characters');
+  return value;
+};
+const tokenDigest = (value: string) => createHmac('sha256', sessionPepper()).update(value).digest('hex');
+const ACCESS_TOKEN_TTL = '15m';
+const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60_000;
 
 @Injectable()
 export class AuthService {
@@ -207,7 +223,97 @@ export class AuthService {
       throw e;
     } finally { c.release(); }
     const { id, accountId } = await this.findOrCreate(phone);
-    return { token: jwt.sign({ sub:id, acc:accountId }, secret(), { expiresIn:'1h' }), userId:id };
+    return this.createSession(id, accountId);
+  }
+
+  private async createSession(userId: string, accountId: string) {
+    const sessionId = randomUUID();
+    const refreshToken = randomBytes(48).toString('base64url');
+    const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_MS);
+    await this.pool.query(
+      'insert into auth_sessions(id,user_id,refresh_token_hash,expires_at) values($1,$2,$3,$4)',
+      [sessionId,userId,tokenDigest(refreshToken),expiresAt.toISOString()],
+    );
+    return {
+      token: jwt.sign({ sub:userId, acc:accountId, sid:sessionId }, secret(), { expiresIn:ACCESS_TOKEN_TTL }),
+      refreshToken,
+      expiresAt: expiresAt.toISOString(),
+      userId,
+    };
+  }
+
+  async refresh(refreshToken: string) {
+    const hash = tokenDigest(refreshToken);
+    const c = await this.pool.connect();
+    let userId: string | null = null;
+    let sessionId: string | null = null;
+    let rotatedToken: string | null = null;
+    let expiresAt: Date | null = null;
+    let reused = false;
+    try {
+      await c.query('begin');
+      const row = (await c.query(
+        'select id,user_id,refresh_token_hash,previous_refresh_token_hash,expires_at,revoked_at from auth_sessions where refresh_token_hash=$1 or previous_refresh_token_hash=$1 for update',
+        [hash],
+      )).rows[0];
+      if (!row) {
+        await c.query('commit');
+      } else if (row.previous_refresh_token_hash === hash) {
+        userId = row.user_id;
+        reused = true;
+        await c.query('update auth_sessions set revoked_at=coalesce(revoked_at,now()) where user_id=$1', [userId]);
+        await c.query('commit');
+      } else if (row.revoked_at || new Date(row.expires_at).getTime() <= Date.now()) {
+        await c.query('commit');
+      } else {
+        userId = row.user_id;
+        sessionId = row.id;
+        rotatedToken = randomBytes(48).toString('base64url');
+        expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_MS);
+        await c.query(
+          'update auth_sessions set previous_refresh_token_hash=refresh_token_hash,refresh_token_hash=$2,expires_at=$3,last_used_at=now() where id=$1',
+          [sessionId,tokenDigest(rotatedToken),expiresAt.toISOString()],
+        );
+        await c.query('commit');
+      }
+    } catch(e) { await c.query('rollback').catch(()=>undefined); throw e; }
+    finally { c.release(); }
+    if (!userId || !sessionId || !rotatedToken || !expiresAt || reused) throw new UnauthorizedException('Refresh token is invalid or expired');
+    const account = (await this.pool.query('select id from accounts where owner_id=$1',[userId])).rows[0];
+    if (!account) throw new UnauthorizedException();
+    return {
+      token: jwt.sign({ sub:userId, acc:account.id, sid:sessionId }, secret(), { expiresIn:ACCESS_TOKEN_TTL }),
+      refreshToken: rotatedToken,
+      expiresAt: expiresAt.toISOString(),
+      userId,
+    };
+  }
+
+  async logout(user: AuthUser) {
+    await this.pool.query('update auth_sessions set revoked_at=coalesce(revoked_at,now()) where id=$1 and user_id=$2',[user.sessionId,user.id]);
+    return { success:true };
+  }
+
+  async logoutAll(user: AuthUser) {
+    await this.pool.query('update auth_sessions set revoked_at=coalesce(revoked_at,now()) where user_id=$1',[user.id]);
+    return { success:true };
+  }
+
+  async sessions(user: AuthUser) {
+    const r = await this.pool.query(
+      'select id,created_at,last_used_at,expires_at from auth_sessions where user_id=$1 and revoked_at is null and expires_at>now() order by created_at desc',
+      [user.id],
+    );
+    return r.rows;
+  }
+
+  async revokeSession(user: AuthUser, id: string) {
+    const r = await this.pool.query(
+      'update auth_sessions set revoked_at=coalesce(revoked_at,now()) where id=$1 and user_id=$2 and revoked_at is null returning id',
+      [id,user.id],
+    );
+    if (!r.rows.length) throw new UnauthorizedException('Session not found or already revoked');
+    return { success:true };
   }
 
   private async findOrCreate(phone: string) {
@@ -231,12 +337,18 @@ export class AuthService {
 }
 class OtpDto { @IsString() phone: string; }
 class VerifyDto { @IsString() phone: string; @IsString() @Matches(/^[0-9]{6}$/) code: string; }
+class RefreshDto { @IsString() @MinLength(40) refreshToken: string; }
 
 @Controller('auth')
 export class AuthController {
   constructor(private auth: AuthService) {}
   @Post('otp') async otp(@Body() b: OtpDto, @Req() req: any) { await this.auth.requestOtp(b.phone, req.ip ?? req.socket?.remoteAddress ?? 'unknown'); return { sent: true }; }
   @Post('verify') verify(@Body() b: VerifyDto, @Req() req: any) { return this.auth.verify(b.phone, b.code, req.ip ?? req.socket?.remoteAddress ?? 'unknown'); }
+  @Post('refresh') refresh(@Body() b: RefreshDto) { return this.auth.refresh(b.refreshToken); }
+  @Post('logout') @UseGuards(AuthGuard) logout(@CurrentUser() u: AuthUser) { return this.auth.logout(u); }
+  @Post('logout-all') @UseGuards(AuthGuard) logoutAll(@CurrentUser() u: AuthUser) { return this.auth.logoutAll(u); }
+  @Get('sessions') @UseGuards(AuthGuard) sessions(@CurrentUser() u: AuthUser) { return this.auth.sessions(u); }
+  @Delete('sessions/:id') @UseGuards(AuthGuard) revoke(@CurrentUser() u: AuthUser, @Param('id') id: string) { return this.auth.revokeSession(u,id); }
 }
 
 @Module({
