@@ -15,6 +15,7 @@ Fawran is a development prototype. It must not process real customer funds or co
 - [x] Mobile API timeout and actionable connection diagnostics.
 - [x] API liveness and readiness endpoints; readiness checks database connectivity and current schema migrations.
 - [x] Transactional cleanup command for expired OTP challenges, stale rate-limit rows, and long-expired/revoked auth sessions; schedule it daily in deployment.
+- [x] PostgreSQL ledger integrity verification command for cached-balance and double-entry invariants; schedule it daily and alert on mismatches. Blnk pending/unknown operation inspection remains a separate command.
 
 ## Financial correctness — still blocking
 
