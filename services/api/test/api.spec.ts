@@ -126,6 +126,7 @@ describe('API flow', () => {
   it('throttles OTP verification attempts across phone numbers from one IP', async () => {
     const phone = '01000000033';
     await request(app.getHttpServer()).post('/auth/otp').send({ phone }).expect(201);
+    await pool.query('delete from otp_verify_rate_limits');
     for (let i = 0; i < 30; i++) {
       await request(app.getHttpServer()).post('/auth/verify').send({ phone, code: '111111' }).expect(401);
     }
