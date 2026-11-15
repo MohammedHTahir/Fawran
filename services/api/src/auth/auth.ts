@@ -1,5 +1,5 @@
 import { BadRequestException, CanActivate, ExecutionContext, Inject, Injectable, Module, UnauthorizedException,
-  Body, Controller, Post, createParamDecorator } from '@nestjs/common';
+  Body, Controller, Post, Req, createParamDecorator } from '@nestjs/common';
 import { IsString, Matches } from 'class-validator';
 import { createHash, randomInt, randomUUID, timingSafeEqual } from 'crypto';
 import * as jwt from 'jsonwebtoken';
