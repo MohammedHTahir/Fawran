@@ -6,7 +6,7 @@ Fawran is a prototype and must not process real customer funds yet.
 
 - [ ] Real payment provider with idempotency keys, signed webhooks, settlement reports and documented timeout/reversal semantics.
 - [ ] Durable payment-intent state machine and reconciliation for charge-succeeded/ledger-failed and webhook-before-response cases.
-- [ ] Versioned database migrations; constraints and foreign keys verified against production-like PostgreSQL.
+- [x] Versioned database migrations and core foreign-key/check constraints added; verify migration execution and constraints against production-like PostgreSQL before release.
 - [ ] Ledger invariant and cached-balance reconciliation scheduled and alerted.
 - [ ] Refund, reversal, dispute and payout accounting reviewed by a payments specialist.
 - [ ] Fees, limits, holds and negative-balance policy approved by partner and risk team.
@@ -43,6 +43,6 @@ Fawran is a prototype and must not process real customer funds yet.
 - Development OTP is `000000`; production SMS adapter is intentionally unconfigured and fails closed.
 - OTP throttling is process-local and is not sufficient for a multi-instance production service.
 - Payment-link provider/ledger recovery is incomplete; a crash can leave a link in `processing`.
-- Database bootstrap still creates tables on application startup; the migration process must replace this before production.
+- API startup now verifies the installed schema version and fails closed if migrations are missing; deployments must run `npm run db:migrate` as a separate step. Migration execution and legacy-data compatibility still require production-like verification.
 - Flutter is a thin prototype and lacks many journeys described in the roadmap.
 - Existing legacy ledger rows have no request fingerprint. The new code rejects unverifiable legacy idempotency replays rather than risking a duplicate charge.
