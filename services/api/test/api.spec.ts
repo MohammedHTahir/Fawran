@@ -3,13 +3,13 @@ import request from 'supertest';
 import { makeApp } from './helpers';
 
 describe('API flow', () => {
-  let app: INestApplication; let alice: string; let bob: string;
+  let app: INestApplication; let pool: any; let alice: string; let bob: string;
   const login = async (phone: string) => {
     await request(app.getHttpServer()).post('/auth/otp').send({ phone }).expect(201);
     const r = await request(app.getHttpServer()).post('/auth/verify').send({ phone, code: '000000' }).expect(201);
     return r.body.token as string;
   };
-  beforeAll(async () => { ({ app } = await makeApp()); alice = await login('+20 100 000 0001'); bob = await login('01000000002'); });
+  beforeAll(async () => { ({ app, pool } = await makeApp()); alice = await login('+20 100 000 0001'); bob = await login('01000000002'); });
   afterAll(() => app.close());
   const h = (t: string, key?: string) => ({ Authorization: `Bearer ${t}`, ...(key ? { 'Idempotency-Key': key } : {}) });
 
