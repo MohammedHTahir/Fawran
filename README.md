@@ -23,7 +23,7 @@ npm run db:migrate
 npm run dev
 ```
 
-The API listens on `http://localhost:3000`. Development OTP is `000000`; production OTP requires a separately configured `OTP_PEPPER` and an approved SMS provider adapter. The API loads `.env` automatically when started from this directory. Schema migrations are an explicit deployment step and are not run automatically at API startup.
+The API listens on `http://localhost:3000`. Development OTP is `000000`; production OTP requires separately managed `JWT_SECRET`, `OTP_PEPPER`, and `SESSION_TOKEN_PEPPER` values plus an approved SMS provider configuration. An optional Twilio adapter is implemented, but it remains disabled until credentials and an approved Egyptian sender are configured. The API loads `.env` automatically when started from this directory. Schema migrations are an explicit deployment step and are not run automatically at API startup.
 
 ## Mobile quick start
 
