@@ -12,7 +12,7 @@ npm run db:migrate
 npm run dev
 ```
 
-The API loads `.env` automatically when run from this service directory. Run `npm run db:migrate` after configuring the database and before the first API start or after deploying a new migration. API startup only verifies the schema version; it does not create or alter tables. Development OTP is `000000` (SMS is a console stub); production OTP requires a real `SmsPort` adapter.
+The API loads `.env` automatically when run from this service directory. Run `npm run db:migrate` after configuring the database and before the first API start or after deploying a new migration. API startup only verifies the schema version; it does not create or alter tables. Development OTP is `000000` (SMS is a console stub). OTP challenges and send limits are stored in PostgreSQL; codes are HMAC-SHA256 digests using `OTP_PEPPER` (production requires a separate random secret of at least 32 characters). Production OTP also requires a real approved `SmsPort` adapter. Migration 2 creates the OTP challenge and rate-limit tables.
 
 ## API
 
