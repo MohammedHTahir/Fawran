@@ -144,4 +144,38 @@ describe('API flow', () => {
     await request(app.getHttpServer()).post('/auth/verify').send({ phone, code: '123' }).expect(400);
   });
 
+  it('rotates refresh tokens and revokes the session when an old token is reused', async () => {
+    const phone = '01000000034';
+    await request(app.getHttpServer()).post('/auth/otp').send({ phone }).expect(201);
+    const first = await request(app.getHttpServer()).post('/auth/verify').send({ phone, code:'000000' }).expect(201);
+    expect(first.body.refreshToken).toBeTruthy();
+    expect(first.body.expiresAt).toBeTruthy();
+    await request(app.getHttpServer()).get('/wallet').set('Authorization',`Bearer ${first.body.token}`).expect(200);
+
+    const rotated = await request(app.getHttpServer()).post('/auth/refresh').send({ refreshToken:first.body.refreshToken }).expect(201);
+    expect(rotated.body.refreshToken).toBeTruthy();
+    expect(rotated.body.refreshToken).not.toBe(first.body.refreshToken);
+    const rotatedAgain = await request(app.getHttpServer()).post('/auth/refresh').send({ refreshToken:rotated.body.refreshToken }).expect(201);
+    expect(rotatedAgain.body.refreshToken).not.toBe(rotated.body.refreshToken);
+    await request(app.getHttpServer()).get('/wallet').set('Authorization',`Bearer ${rotatedAgain.body.token}`).expect(200);
+
+    // Replaying a token from two rotations ago must still be detected.
+    await request(app.getHttpServer()).post('/auth/refresh').send({ refreshToken:first.body.refreshToken }).expect(401);
+    await request(app.getHttpServer()).get('/wallet').set('Authorization',`Bearer ${rotatedAgain.body.token}`).expect(401);
+    await request(app.getHttpServer()).post('/auth/refresh').send({ refreshToken:rotatedAgain.body.refreshToken }).expect(401);
+  });
+
+  it('lists sessions and logout immediately revokes the active access token', async () => {
+    const phone = '01000000035';
+    await request(app.getHttpServer()).post('/auth/otp').send({ phone }).expect(201);
+    const login = await request(app.getHttpServer()).post('/auth/verify').send({ phone, code:'000000' }).expect(201);
+    const headers = { Authorization:`Bearer ${login.body.token}` };
+    const sessions = await request(app.getHttpServer()).get('/auth/sessions').set(headers).expect(200);
+    expect(sessions.body).toHaveLength(1);
+    expect(sessions.body[0].id).toBeTruthy();
+    await request(app.getHttpServer()).post('/auth/logout').set(headers).send({}).expect(201);
+    await request(app.getHttpServer()).get('/wallet').set(headers).expect(401);
+    await request(app.getHttpServer()).post('/auth/refresh').send({ refreshToken:login.body.refreshToken }).expect(401);
+  });
+
 });

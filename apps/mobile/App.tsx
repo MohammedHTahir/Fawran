@@ -16,10 +16,66 @@ const money = (n:number) => (n < 0 ? '-' : '') + Math.floor(Math.abs(n)/100).toL
 const parseMoney = (s:string):number|null => { const m = /^(\d{1,7})(?:\.(\d{1,2}))?$/.exec(s.trim()); if (!m) return null; const n = Number(m[1])*100 + Number((m[2]||'').padEnd(2,'0')); return Number.isSafeInteger(n) && n > 0 ? n : null; };
 const validPhone = (s:string) => /^(\+20|0020|0)1[0125]\d{8}$/.test(s.replace(/[\s-]/g,''));
 const makeKey = () => 'fawran-' + Date.now() + '-' + Math.random().toString(36).slice(2,12);
+let accessTokenCache: string | null = null;
+let onAuthExpired: (() => void) | null = null;
+let refreshInFlight: Promise<string | null> | null = null;
+async function refreshAccessToken(): Promise<string | null> {
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      const refreshToken = await SecureStore.getItemAsync('fawran.refreshToken');
+      if (!refreshToken) {
+        accessTokenCache = null;
+        await SecureStore.deleteItemAsync('fawran.token');
+        onAuthExpired?.();
+        return null;
+      }
+      let response: Response;
+      try {
+        response = await fetch(API + '/auth/refresh', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({refreshToken}), signal:AbortSignal.timeout(12_000)
+        });
+      } catch {
+        const e = new Error('network') as ApiError; e.status = 0; throw e;
+      }
+      if (!response.ok) {
+        accessTokenCache = null;
+        await Promise.all([
+          SecureStore.deleteItemAsync('fawran.token'),
+          SecureStore.deleteItemAsync('fawran.refreshToken')
+        ]);
+        onAuthExpired?.();
+        return null;
+      }
+      const session = await response.json() as {token:string;refreshToken:string};
+      accessTokenCache = session.token;
+      await Promise.all([
+        SecureStore.setItemAsync('fawran.token',session.token),
+        SecureStore.setItemAsync('fawran.refreshToken',session.refreshToken)
+      ]);
+      return session.token;
+    })().finally(() => { refreshInFlight = null; });
+  }
+  return refreshInFlight;
+}
 async function api<T>(path:string, token?:string|null, method='GET', body?:unknown, idem?:string):Promise<T> {
-  let r:Response;
-  try { r = await fetch(API + path, { method, headers:{'Content-Type':'application/json', ...(token?{Authorization:'Bearer '+token}:{}), ...(idem?{'Idempotency-Key':idem}:{})}, ...(body!==undefined?{body:JSON.stringify(body)}:{}) }); }
-  catch { const e = new Error('network') as ApiError; e.status = 0; throw e; }
+  const send = async (authToken:string|null) => {
+    try {
+      return await fetch(API + path, {
+        method,
+        headers:{'Content-Type':'application/json', ...(authToken?{Authorization:'Bearer '+authToken}:{}), ...(idem?{'Idempotency-Key':idem}:{})},
+        ...(body!==undefined?{body:JSON.stringify(body)}:{})
+      });
+    } catch {
+      const e = new Error('network') as ApiError; e.status = 0; throw e;
+    }
+  };
+  const activeToken = accessTokenCache ?? token ?? null;
+  let r = await send(activeToken);
+  if (r.status === 401 && activeToken && path !== '/auth/refresh') {
+    const refreshedToken = await refreshAccessToken();
+    if (refreshedToken) r = await send(refreshedToken);
+  }
   const data = await r.json().catch(()=>null);
   if (!r.ok) { const e = new Error(data?.message || 'Request failed') as ApiError; e.status = r.status; throw e; }
   return data as T;
@@ -34,15 +90,16 @@ export default function App() {
   const [receipt,setReceipt] = useState<{amount:number;to:string;at:string}|null>(null);
   const topupAttempt = useRef<{fp:string;key:string}|null>(null), transferAttempt = useRef<{fp:string;key:string}|null>(null);
   const w = T[lang], rtl = lang === 'ar';
-  useEffect(() => { (async()=>{ const [l,t,p] = await Promise.all([SecureStore.getItemAsync('fawran.lang'),SecureStore.getItemAsync('fawran.token'),SecureStore.getItemAsync('fawran.phone')]); if(l==='ar'||l==='en')setLang(l); if(t){setToken(t);setPhone(p||'');} })(); }, []);
-  const refresh = async () => { if(!token)return; setRefreshing(true); try { const [a,b] = await Promise.all([api<{balance:number}>('/wallet',token),api<Tx[]>('/transactions',token)]); setBalance(a.balance);setTx(b); } catch(e) { if((e as ApiError).status===401){await SecureStore.deleteItemAsync('fawran.token');setToken(null);setBalance(0);setTx([]);} else Alert.alert(w.generic,errorText(e,w)); } finally {setRefreshing(false);} };
+  useEffect(() => { onAuthExpired = () => { setToken(null); setBalance(0); setTx([]); setPage('tabs'); }; return () => { onAuthExpired = null; }; }, []);
+  useEffect(() => { (async()=>{ const [l,t,p] = await Promise.all([SecureStore.getItemAsync('fawran.lang'),SecureStore.getItemAsync('fawran.token'),SecureStore.getItemAsync('fawran.phone')]); if(l==='ar'||l==='en')setLang(l); if(t){accessTokenCache=t;setToken(t);setPhone(p||'');} })(); }, []);
+  const refresh = async () => { if(!token)return; setRefreshing(true); try { const [a,b] = await Promise.all([api<{balance:number}>('/wallet',token),api<Tx[]>('/transactions',token)]); setBalance(a.balance);setTx(b); } catch(e) { if((e as ApiError).status===401){await SecureStore.deleteItemAsync('fawran.token');await SecureStore.deleteItemAsync('fawran.refreshToken');accessTokenCache=null;setToken(null);setBalance(0);setTx([]);} else Alert.alert(w.generic,errorText(e,w)); } finally {setRefreshing(false);} };
   useEffect(()=>{if(token)void refresh();},[token]);
   const setLanguage = async (l:Lang) => {setLang(l);await SecureStore.setItemAsync('fawran.lang',l);};
-  const login = async () => { if(!validPhone(phone)){Alert.alert(w.invalidPhone);return;} setBusy(true); try { if(!otpSent){await api('/auth/otp',null,'POST',{phone:phone.trim()});setOtpSent(true);} else {const r=await api<{token:string}>('/auth/verify',null,'POST',{phone:phone.trim(),code:otp});await Promise.all([SecureStore.setItemAsync('fawran.token',r.token),SecureStore.setItemAsync('fawran.phone',phone.trim())]);setToken(r.token);} } catch(e){Alert.alert(w.generic,errorText(e,w));} finally{setBusy(false);} };
+  const login = async () => { if(!validPhone(phone)){Alert.alert(w.invalidPhone);return;} setBusy(true); try { if(!otpSent){await api('/auth/otp',null,'POST',{phone:phone.trim()});setOtpSent(true);} else {const r=await api<{token:string;refreshToken:string}>('/auth/verify',null,'POST',{phone:phone.trim(),code:otp});accessTokenCache=r.token;await Promise.all([SecureStore.setItemAsync('fawran.token',r.token),SecureStore.setItemAsync('fawran.refreshToken',r.refreshToken),SecureStore.setItemAsync('fawran.phone',phone.trim())]);setToken(r.token);} } catch(e){Alert.alert(w.generic,errorText(e,w));} finally{setBusy(false);} };
   const doTopup = async () => { const n=parseMoney(amount); if(!n){Alert.alert(w.invalidAmount);return;} const fp=n+'|'+method; if(topupAttempt.current?.fp!==fp)topupAttempt.current={fp,key:makeKey()}; setBusy(true); try {await api('/wallet/topup',token,'POST',{amount:n,method},topupAttempt.current!.key);setTopup(false);setAmount('');topupAttempt.current=null;await refresh();} catch(e){Alert.alert(w.generic,errorText(e,w));} finally{setBusy(false);} };
   const doSend = () => { const n=parseMoney(amount); if(!validPhone(to)){Alert.alert(w.invalidPhone);return;} if(!n){Alert.alert(w.invalidAmount);return;} const fp=to.trim()+'|'+n+'|'+note.trim(); if(transferAttempt.current?.fp!==fp)transferAttempt.current={fp,key:makeKey()}; Alert.alert(w.confirm,money(n)+' EGP\n'+to,[{text:w.cancel,style:'cancel'},{text:w.send,onPress:async()=>{setBusy(true);try{await api('/transfers',token,'POST',{toPhone:to.trim(),amount:n,...(note.trim()?{note:note.trim()}:{})},transferAttempt.current!.key);setReceipt({amount:n,to:to.trim(),at:new Date().toISOString()});setPage('receipt');setAmount('');setTo('');setNote('');transferAttempt.current=null;await refresh();}catch(e){Alert.alert(w.generic,errorText(e,w));}finally{setBusy(false);}}}]); };
   const doLink = async () => {const n=parseMoney(linkAmount);if(!n){Alert.alert(w.invalidAmount);return;}setBusy(true);try{const r=await api<{code:string}>('/links',token,'POST',{amount:n,...(description.trim()?{description:description.trim()}:{})});setLinkCode(r.code);}catch(e){Alert.alert(w.generic,errorText(e,w));}finally{setBusy(false);}};
-  const logout = async () => {await SecureStore.deleteItemAsync('fawran.token');await SecureStore.deleteItemAsync('fawran.phone');setToken(null);setBalance(0);setTx([]);setPage('tabs');};
+  const logout = async () => {try{await api('/auth/logout',token,'POST',{});}catch{}await SecureStore.deleteItemAsync('fawran.token');await SecureStore.deleteItemAsync('fawran.refreshToken');await SecureStore.deleteItemAsync('fawran.phone');accessTokenCache=null;setToken(null);setBalance(0);setTx([]);setPage('tabs');};
   const txt=(s:string,style:any={})=><Text style={[S.text,{textAlign:rtl?'right':'left'},style]}>{s}</Text>;
   const label=(s:string)=>txt(s,{fontWeight:'800',fontSize:13,marginBottom:7});
   const field=(v:string,change:(s:string)=>void,placeholder:string,kb:any='default',max?:number)=><TextInput value={v} onChangeText={change} placeholder={placeholder} placeholderTextColor="#98A49F" keyboardType={kb} maxLength={max} autoCapitalize="none" style={[S.input,{textAlign:kb==='phone-pad'||kb==='numeric'||kb==='decimal-pad'?'left':rtl?'right':'left'}]}/>;

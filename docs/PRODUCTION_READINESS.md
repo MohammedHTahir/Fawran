@@ -28,8 +28,8 @@ Fawran is a development prototype. It must not process real customer funds or co
 - [ ] Select and configure an approved production SMS provider, register an appropriate sender, verify Egypt delivery and regulatory requirements, store credentials in managed secrets, and add delivery monitoring. The current production SMS adapter intentionally fails closed.
 - [ ] Add device-bound and global OTP abuse controls, risk-based challenges, SMS pumping protections, and operational monitoring. Current controls are per phone and server-observed IP.
 - [ ] Configure trusted proxy hops explicitly before using forwarded client IPs; do not trust arbitrary forwarded headers.
-- [ ] Implement refresh-token rotation, device/session listing and revocation, logout semantics, and access-token invalidation. Current access tokens are short-lived JWTs; there is no refresh/session lifecycle.
-- [ ] Configure JWT signing secrets and OTP pepper in managed secret storage, with rotation and incident procedures. Production `JWT_SECRET` and `OTP_PEPPER` must each be separate random values of at least 32 characters.
+- [x] Implement rotating refresh tokens, active session listing/revocation, logout/current-session revocation, logout-all, and database-backed access-token invalidation.\n- [ ] Add device binding/metadata, risk-based session controls, secure recovery, and mobile device-management UI.
+- [ ] Configure JWT signing secrets and OTP pepper in managed secret storage, with rotation and incident procedures. Production `JWT_SECRET`, `OTP_PEPPER`, and `SESSION_TOKEN_PEPPER` must each be separate random values of at least 32 characters.
 - [ ] Complete a threat model, dependency review, SAST/DAST, secret scanning, and independent penetration test; remediate all critical/high findings.
 - [ ] Define PII encryption, access controls, retention/deletion, privacy notice, consent, and data-subject request workflows.
 - [ ] Implement admin RBAC, maker-checker controls, and immutable admin audit trail.
