@@ -22,7 +22,6 @@ Fawran is a development prototype. It must not process real customer funds or co
 - [ ] Integrate an appropriately licensed payment partner with durable provider-side idempotency, signed webhooks, provider event replay protection, settlement reports, and documented timeout/reversal semantics.
 - [ ] Complete a durable payment-intent state machine for pending, succeeded, failed, reversed, and under-review outcomes. Define webhook-before-response, charge-succeeded/ledger-failed, late success, and duplicate event behavior.
 - [ ] Build automated provider-to-ledger reconciliation, exception queues, operator tooling, alerts, and signed-off runbooks. Current Blnk reconciliation is an inspection command for pending/unknown ledger operations, not a complete PSP settlement reconciler.
-- [x] Add a PostgreSQL ledger invariant command that checks cached balances and double-entry totals. Schedule it daily and alert on non-zero exit codes in the deployment environment.
 - [ ] Have a payments specialist review refunds, reversals, disputes, chargebacks, payouts, fees, holds, limits, and negative-balance policy.
 - [ ] Verify migration execution, legacy-data compatibility, backup/restore, and performance against production-like PostgreSQL data.
 
@@ -59,10 +58,10 @@ Fawran is a development prototype. It must not process real customer funds or co
 
 - `MockProvider` is development-only. It does not charge cards, connect to InstaPay, or connect to Egyptian mobile wallets. Payment method labels are placeholders, not live integrations.
 - Development OTP is `000000`; production OTP uses a random six-digit code but cannot be delivered until an approved SMS adapter is configured.
-- The OTP database tables are durable and shared across API instances. Phone/IP rate limits are basic controls, not a complete anti-abuse or SMS-pumping solution.
+- The OTP database tables are durable and shared across API instances. Current throttles cover sends per phone/IP and verification attempts per phone/IP; these are baseline controls, not a complete device-bound anti-abuse or SMS-pumping solution.
 - A provider charge that succeeds while ledger posting fails leaves a recoverable processing record; safe recovery depends on the real provider deduplicating the stable reference. No real provider/webhook adapter is configured.
 - Payment links currently have no signed webhook or automated settlement reconciliation.
 - Blnk Core is an optional ledger service, not a licensed payment provider or bank. Its local development configuration must never be exposed publicly.
 - Legacy ledger rows without request fingerprints fail closed on unverifiable idempotency replays.
-- The customer app is React Native + Expo. Android export and TypeScript checks run in CI; full iOS/Android device QA and store release remain outstanding.
+- The customer app is React Native + Expo. Android export and TypeScript checks run in CI; full iOS/Android device QA and store release remain outstanding. The account screen supports active-session listing and revocation.
 - No part of this checklist should be interpreted as authorization to hold or transfer customer funds.
