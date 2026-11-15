@@ -15,6 +15,11 @@ describe('API flow', () => {
   afterAll(() => app.close());
   const h = (t: string, key?: string) => ({ Authorization: `Bearer ${t}`, ...(key ? { 'Idempotency-Key': key } : {}) });
 
+  it('exposes liveness and database/schema readiness checks', async () => {
+    await request(app.getHttpServer()).get('/health/live').expect(200).expect({ status:'ok' });
+    await request(app.getHttpServer()).get('/health/ready').expect(200).expect({ status:'ready' });
+  });
+
   it('rejects bad phone numbers and missing auth', async () => {
     await request(app.getHttpServer()).post('/auth/otp').send({ phone: '12345' }).expect(400);
     await request(app.getHttpServer()).get('/wallet').expect(401);
