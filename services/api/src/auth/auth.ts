@@ -253,15 +253,19 @@ export class AuthService {
     try {
       await c.query('begin');
       const row = (await c.query(
-        'select id,user_id,refresh_token_hash,previous_refresh_token_hash,expires_at,revoked_at from auth_sessions where refresh_token_hash=$1 or previous_refresh_token_hash=$1 for update',
+        'select id,user_id,refresh_token_hash,expires_at,revoked_at from auth_sessions where refresh_token_hash=$1 for update',
         [hash],
       )).rows[0];
       if (!row) {
-        await c.query('commit');
-      } else if (row.previous_refresh_token_hash === hash) {
-        userId = row.user_id;
-        reused = true;
-        await c.query('update auth_sessions set revoked_at=coalesce(revoked_at,now()) where user_id=$1', [userId]);
+        const consumed = (await c.query(
+          'select session_id,user_id from auth_refresh_token_history where token_hash=$1 for update',
+          [hash],
+        )).rows[0];
+        if (consumed) {
+          userId = consumed.user_id;
+          reused = true;
+          await c.query('update auth_sessions set revoked_at=coalesce(revoked_at,now()) where user_id=$1', [userId]);
+        }
         await c.query('commit');
       } else if (row.revoked_at || new Date(row.expires_at).getTime() <= Date.now()) {
         await c.query('commit');
@@ -271,7 +275,11 @@ export class AuthService {
         rotatedToken = randomBytes(48).toString('base64url');
         expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_MS);
         await c.query(
-          'update auth_sessions set previous_refresh_token_hash=refresh_token_hash,refresh_token_hash=$2,expires_at=$3,last_used_at=now() where id=$1',
+          'insert into auth_refresh_token_history(token_hash,session_id,user_id) values($1,$2,$3)',
+          [hash,sessionId,userId],
+        );
+        await c.query(
+          'update auth_sessions set refresh_token_hash=$2,expires_at=$3,last_used_at=now() where id=$1',
           [sessionId,tokenDigest(rotatedToken),expiresAt.toISOString()],
         );
         await c.query('commit');
