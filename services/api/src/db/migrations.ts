@@ -88,6 +88,22 @@ create table if not exists otp_verify_rate_limits (
   request_count integer not null default 0 check (request_count >= 0)
 );
 `,
+}, {
+  version: 4,
+  name: 'rotating_auth_sessions',
+  sql: `
+create table if not exists auth_sessions (
+  id text primary key,
+  user_id text not null references users(id) on delete cascade,
+  refresh_token_hash text not null unique,
+  previous_refresh_token_hash text unique,
+  expires_at timestamptz not null,
+  revoked_at timestamptz,
+  created_at timestamptz not null default now(),
+  last_used_at timestamptz
+);
+create index if not exists auth_sessions_user_active_idx on auth_sessions(user_id, revoked_at, expires_at);
+`,
 }] as const;
 
 /** Run as an explicit deployment step, never during API startup. */
