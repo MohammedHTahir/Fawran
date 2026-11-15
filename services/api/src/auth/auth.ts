@@ -1,4 +1,4 @@
-import { BadRequestException, CanActivate, ExecutionContext, Inject, Injectable, Module, UnauthorizedException,
+import { BadRequestException, CanActivate, ExecutionContext, Inject, Injectable, Module, UnauthorizedException, TooManyRequestsException,
   Body, Controller, Post, Req, createParamDecorator } from '@nestjs/common';
 import { IsString, Matches } from 'class-validator';
 import { createHmac, randomInt, randomUUID, timingSafeEqual } from 'crypto';
@@ -56,6 +56,7 @@ const OTP_COOLDOWN_MS = 60_000;
 const OTP_PHONE_LIMIT = 3;
 const OTP_IP_LIMIT = 10;
 const OTP_MAX_ATTEMPTS = 5;
+const OTP_VERIFY_IP_LIMIT = 30;
 const otpPepper = () => {
   const value = process.env.OTP_PEPPER ?? (process.env.NODE_ENV === 'production' ? undefined : 'dev-only-otp-pepper-change-before-deployment');
   if (!value || value.length < 32) throw new Error('OTP_PEPPER must be configured with at least 32 characters');
@@ -119,12 +120,27 @@ export class AuthService {
       [scope,key,new Date(rate.windowStartedAt).toISOString(),rate.count,rate.lastSentAt ? new Date(rate.lastSentAt).toISOString() : null]);
   }
 
-  async verify(phoneRaw: string, code: string) {
+  async verify(phoneRaw: string, code: string, requesterIp: string) {
     const phone = normalizePhone(phoneRaw);
     const phoneKey = digest(phone);
     const c = await this.pool.connect();
     try {
       await c.query('begin');
+      const ipKey = digest(requesterIp || 'unknown');
+      await c.query(`insert into otp_verify_rate_limits(ip_key,window_started_at,request_count)
+        values($1,now(),0) on conflict(ip_key) do nothing`, [ipKey]);
+      const ipRate = (await c.query('select window_started_at,request_count from otp_verify_rate_limits where ip_key=$1 for update',[ipKey])).rows[0];
+      if (!ipRate) throw new Error('Unable to lock OTP verification rate limit');
+      const now = Date.now();
+      let windowStart = new Date(ipRate.window_started_at).getTime();
+      let count = Number(ipRate.request_count);
+      if (now - windowStart >= OTP_WINDOW_MS) { windowStart = now; count = 0; }
+      if (count >= OTP_VERIFY_IP_LIMIT) {
+        await c.query('commit');
+        throw new TooManyRequestsException('Too many verification attempts from this network; try again later');
+      }
+      await c.query('update otp_verify_rate_limits set window_started_at=$2,request_count=$3 where ip_key=$1',
+        [ipKey,new Date(windowStart).toISOString(),count+1]);
       const row = (await c.query('select code_digest,expires_at,attempts from otp_challenges where phone_key=$1 for update',[phoneKey])).rows[0];
       if (!row || new Date(row.expires_at).getTime() <= Date.now() || Number(row.attempts) >= OTP_MAX_ATTEMPTS) {
         if (row) await c.query('delete from otp_challenges where phone_key=$1',[phoneKey]);
@@ -177,7 +193,7 @@ class VerifyDto { @IsString() phone: string; @IsString() @Matches(/^[0-9]{6}$/) 
 export class AuthController {
   constructor(private auth: AuthService) {}
   @Post('otp') async otp(@Body() b: OtpDto, @Req() req: any) { await this.auth.requestOtp(b.phone, req.ip ?? req.socket?.remoteAddress ?? 'unknown'); return { sent: true }; }
-  @Post('verify') verify(@Body() b: VerifyDto) { return this.auth.verify(b.phone, b.code); }
+  @Post('verify') verify(@Body() b: VerifyDto, @Req() req: any) { return this.auth.verify(b.phone, b.code, req.ip ?? req.socket?.remoteAddress ?? 'unknown'); }
 }
 
 @Module({
