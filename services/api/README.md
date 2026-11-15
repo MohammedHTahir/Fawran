@@ -8,10 +8,11 @@ NestJS + PostgreSQL. Money is stored as integer piasters (1 EGP = 100). All mone
 cp .env.example .env
 docker compose up -d db
 npm ci
+npm run db:migrate
 npm run dev
 ```
 
-The API loads `.env` automatically when run from this service directory. Development OTP is `000000` (SMS is a console stub); production OTP requires a real `SmsPort` adapter.
+The API loads `.env` automatically when run from this service directory. Run `npm run db:migrate` after configuring the database and before the first API start or after deploying a new migration. API startup only verifies the schema version; it does not create or alter tables. Development OTP is `000000` (SMS is a console stub); production OTP requires a real `SmsPort` adapter.
 
 ## API
 

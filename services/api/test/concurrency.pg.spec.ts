@@ -3,13 +3,16 @@ import 'reflect-metadata';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/app.module';
 import { LedgerService } from '../src/ledger/ledger.service';
-import { SYSTEM_PROVIDER_ACCOUNT } from '../src/db/db.module';
+import { PG_POOL, SYSTEM_PROVIDER_ACCOUNT } from '../src/db/db.module';
+import { runMigrations } from '../src/db/migrations';
 
 const d = process.env.DATABASE_URL ? describe : describe.skip;
 d('Ledger concurrency (real Postgres)', () => {
   let app: any; let ledger: LedgerService;
   beforeAll(async () => {
-    app = (await Test.createTestingModule({ imports: [AppModule] }).compile()).createNestApplication();
+    const module = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    await runMigrations(module.get(PG_POOL));
+    app = module.createNestApplication();
     await app.init(); ledger = app.get(LedgerService);
   });
   afterAll(() => app.close());

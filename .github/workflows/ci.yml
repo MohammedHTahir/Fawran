@@ -31,6 +31,9 @@ jobs:
           cache-dependency-path: services/api/package-lock.json
       - run: npm ci
       - run: npm run build
+      - run: npm run db:migrate
+        env:
+          DATABASE_URL: postgres://fawran:fawran@localhost:5432/fawran_test
       - run: npm test -- --runInBand
         env:
           DATABASE_URL: postgres://fawran:fawran@localhost:5432/fawran_test
