@@ -117,7 +117,7 @@ export class PaymentIntentStore {
   }
 
   private normalize(row: Record<string, unknown>): Record<string, unknown> & { id: string; amount: number } {
-    return { ...row, amount: Number(row.amount) };
+    return { ...row, id: String(row.id), amount: Number(row.amount) };
   }
 }
 
