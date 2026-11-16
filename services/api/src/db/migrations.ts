@@ -162,7 +162,7 @@ create index if not exists provider_events_pending_idx
 create index if not exists provider_events_intent_idx
   on provider_events(payment_intent_id, received_at);
 `,
-] as const;
+}] as const;
 
 /** Run as an explicit deployment step, never during API startup. */
 export async function runMigrations(pool: Pool): Promise<{ applied: number[]; current: number }> {
