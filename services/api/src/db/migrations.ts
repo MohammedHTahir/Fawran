@@ -110,8 +110,7 @@ create table if not exists auth_refresh_token_history (
 );
 create index if not exists auth_refresh_token_history_user_idx on auth_refresh_token_history(user_id);
 `,
-}
-  }, {
+}, {
   version: 5,
   name: 'durable_payment_intents_and_provider_event_inbox',
   sql: `
