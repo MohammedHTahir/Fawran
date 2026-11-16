@@ -41,6 +41,14 @@ Last reviewed: 2026-11-16
 - Recent compatible dependency updates merged: React patch update, Jest/@types update, mobile TypeScript 7 update, and GitHub Actions setup-node update.
 - The actions/checkout update is still open because its branch conflicts after the setup-node update. API TypeScript 7 and NestJS 12 updates remain unmerged because their API/Blnk CI checks fail; do not force these major upgrades.
 
+
+### Payment lifecycle foundation (new, not a live PSP integration)
+- Migration v5 adds durable payment-intent records with a constrained status vocabulary and provider-event inbox rows.
+- Provider-event IDs are unique per provider; a duplicate event ID with a different SHA-256 payload digest is rejected.
+- A provider-neutral state-transition policy covers created, pending, succeeded, failed, reversed and under-review outcomes. Late success after a failed result must enter under_review first.
+- The PaymentIntentStore supports idempotent intent creation, payload-fingerprint mismatch rejection, event inbox deduplication and compare-and-set status updates.
+- This foundation is not yet wired to a provider webhook endpoint and does not verify provider signatures, trigger ledger postings, reconcile settlements or make real payments.
+
 ## Not yet implemented or externally blocked
 
 - No live payment provider, bank, card processor, Egyptian mobile-wallet rail or InstaPay integration is configured. Mock payment behavior is development-only.

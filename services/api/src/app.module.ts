@@ -5,6 +5,7 @@ import { LedgerModule } from './ledger/ledger.module';
 import { LinksModule } from './links/links';
 import { HealthModule } from './health/health';
 import { WalletModule } from './wallet/wallet';
+import { PaymentsModule } from './payments/payments.module';
 
-@Module({ imports: [DbModule, LedgerModule, AuthModule, WalletModule, LinksModule, HealthModule] })
+@Module({ imports: [DbModule, LedgerModule, AuthModule, WalletModule, LinksModule, HealthModule, PaymentsModule] })
 export class AppModule {}

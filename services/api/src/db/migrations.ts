@@ -110,6 +110,58 @@ create table if not exists auth_refresh_token_history (
 );
 create index if not exists auth_refresh_token_history_user_idx on auth_refresh_token_history(user_id);
 `,
+}, {
+  version: 5,
+  name: 'durable_payment_intents_and_provider_event_inbox',
+  sql: `
+create table if not exists payment_intents (
+  id text primary key,
+  reference text not null unique,
+  idempotency_key text not null unique,
+  user_id text references users(id) on delete restrict,
+  amount bigint not null check (amount > 0),
+  currency text not null default 'EGP' check (currency = 'EGP'),
+  method text not null,
+  status text not null default 'created'
+    check (status in ('created','pending','succeeded','failed','reversed','under_review')),
+  provider_name text,
+  provider_ref text,
+  ledger_txn_id text,
+  request_fingerprint text not null,
+  failure_code text,
+  expires_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  succeeded_at timestamptz,
+  reversed_at timestamptz
+);
+create unique index if not exists payment_intents_provider_ref_unique
+  on payment_intents(provider_name, provider_ref)
+  where provider_name is not null and provider_ref is not null;
+create index if not exists payment_intents_status_updated_idx
+  on payment_intents(status, updated_at);
+create index if not exists payment_intents_user_created_idx
+  on payment_intents(user_id, created_at desc);
+
+create table if not exists provider_events (
+  id text primary key,
+  provider_name text not null,
+  provider_event_id text not null,
+  event_type text not null,
+  payload_sha256 text not null,
+  payment_intent_id text references payment_intents(id) on delete restrict,
+  status text not null default 'received'
+    check (status in ('received','processed','ignored','failed')),
+  failure_code text,
+  received_at timestamptz not null default now(),
+  processed_at timestamptz,
+  unique(provider_name, provider_event_id)
+);
+create index if not exists provider_events_pending_idx
+  on provider_events(status, received_at);
+create index if not exists provider_events_intent_idx
+  on provider_events(payment_intent_id, received_at);
+`,
 }] as const;
 
 /** Run as an explicit deployment step, never during API startup. */
