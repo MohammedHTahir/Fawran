@@ -47,7 +47,7 @@ Provision and verify each currency ledger and its system balance in Blnk before 
 
 ## Not yet implemented
 
-- A database-level immutable-currency trigger and independent PostgreSQL integration test for it.
+- Currency immutability is enforced by a PostgreSQL trigger installed by the explicit migration command and covered by a PostgreSQL integration test; the in-memory pg-mem adapter intentionally skips triggers.
 - Multi-country phone onboarding and country-aware KYC.
 - Currency-aware test payment provider, payment links, refunds, payouts and FX.
 - Rewards points ledger, merchant ecosystem, operations console and market-specific compliance workflows.
