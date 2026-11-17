@@ -287,7 +287,7 @@ export class AuthService {
     } catch(e) { await c.query('rollback').catch(()=>undefined); throw e; }
     finally { c.release(); }
     if (!userId || !sessionId || !rotatedToken || !expiresAt || reused) throw new UnauthorizedException('Refresh token is invalid or expired');
-    const account = (await this.pool.query('select id from accounts where owner_id=$1 and currency='EGP'',[userId])).rows[0];
+    const account = (await this.pool.query(`select id from accounts where owner_id=$1 and currency='EGP'`,[userId])).rows[0];
     if (!account) throw new UnauthorizedException();
     return {
       token: jwt.sign({ sub:userId, acc:account.id, sid:sessionId }, secret(), { expiresIn:ACCESS_TOKEN_TTL }),
@@ -333,8 +333,8 @@ export class AuthService {
         await c.query('insert into users(id,phone) values($1,$2) on conflict(phone) do nothing',[randomUUID(),phone]);
         const user=(await c.query('select id from users where phone=$1 for update',[phone])).rows[0];
         if (!user) throw new Error('Unable to create user');
-        await c.query('insert into accounts(id,owner_id,kind) values($1,$2,$3) on conflict(owner_id) do nothing',[randomUUID(),user.id,'user']);
-        r=(await c.query('select u.id,a.id as acc from users u join accounts a on a.owner_id=u.id and a.currency='EGP' where u.phone=$1',[phone])).rows[0];
+        await c.query(`insert into accounts(id,owner_id,kind,currency) values($1,$2,$3,'EGP') on conflict do nothing`,[randomUUID(),user.id,'user']);
+        r=(await c.query(`select u.id,a.id as acc from users u join accounts a on a.owner_id=u.id and a.currency='EGP' where u.phone=$1`,[phone])).rows[0];
       }
       if (!r) throw new Error('Unable to create wallet account');
       await c.query('commit');
