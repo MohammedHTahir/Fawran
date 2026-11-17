@@ -117,6 +117,14 @@ export class RewardsService {
     try {
       await client.query('begin');
       const proposedTransactionId = randomUUID();
+      const existingBeforeInsert = await client.query(
+        'select id,request_fingerprint from reward_transactions where idempotency_key=$1', [input.idempotencyKey],
+      );
+      if (existingBeforeInsert.rows[0]) {
+        if (existingBeforeInsert.rows[0].request_fingerprint !== fingerprint) throw new ConflictException('Reward idempotency key was reused for a different request');
+        await client.query('commit');
+        return { transactionId: String(existingBeforeInsert.rows[0].id), replayed: true };
+      }
       const inserted = await client.query(
         `insert into reward_transactions
           (id,idempotency_key,request_fingerprint,owner_id,kind,points,reference,campaign_id,expires_at)
@@ -125,7 +133,7 @@ export class RewardsService {
         [proposedTransactionId, input.idempotencyKey, fingerprint, input.userId, input.points,
           input.reference ?? null, input.campaignId ?? null, input.expiresAt ?? null],
       );
-      if (!inserted.rows[0]) {
+      if (!inserted.rows[0] || String(inserted.rows[0].id) !== proposedTransactionId) {
         const existing = await client.query(
           'select id,request_fingerprint from reward_transactions where idempotency_key=$1',
           [input.idempotencyKey],
@@ -145,12 +153,12 @@ export class RewardsService {
       const lifetime = Number(customer.lifetime_earned_points) + input.points;
       if (!Number.isSafeInteger(lifetime)) throw new BadRequestException('Lifetime reward points exceed the supported integer range');
       await client.query(
-        'update reward_accounts set balance_points=balance_points+$2,lifetime_earned_points=lifetime_earned_points+$2,tier=$3,updated_at=now() where id=$1',
-        [customer.id, input.points, this.tierFor(lifetime)],
+        'update reward_accounts set balance_points=$2,lifetime_earned_points=$3,tier=$4,updated_at=now() where id=$1',
+        [customer.id, Number(customer.balance_points) + input.points, lifetime, this.tierFor(lifetime)],
       );
       await client.query(
-        'update reward_accounts set balance_points=balance_points-$2,updated_at=now() where id=$1',
-        [issuance.id, input.points],
+        'update reward_accounts set balance_points=$2,updated_at=now() where id=$1',
+        [issuance.id, Number(issuance.balance_points) - input.points],
       );
       await client.query(
         'insert into reward_entries(id,transaction_id,account_id,points_delta) values($1,$2,$3,$4)',
@@ -183,12 +191,20 @@ export class RewardsService {
     try {
       await client.query('begin');
       const proposedTransactionId = randomUUID();
+      const existingBeforeInsert = await client.query(
+        'select id,request_fingerprint from reward_transactions where idempotency_key=$1', [idempotencyKey],
+      );
+      if (existingBeforeInsert.rows[0]) {
+        if (existingBeforeInsert.rows[0].request_fingerprint !== fingerprint) throw new ConflictException('Reward idempotency key was reused for a different request');
+        await client.query('commit');
+        return { transactionId: String(existingBeforeInsert.rows[0].id), replayed: true };
+      }
       const inserted = await client.query(
         `insert into reward_transactions(id,idempotency_key,request_fingerprint,owner_id,kind,points,reference)
          values($1,$2,$3,$4,'redeem',$5,$6) on conflict(idempotency_key) do nothing returning id`,
         [proposedTransactionId, idempotencyKey, fingerprint, userId, points, reference],
       );
-      if (!inserted.rows[0]) {
+      if (!inserted.rows[0] || String(inserted.rows[0].id) !== proposedTransactionId) {
         const existing = await client.query(
           'select id,request_fingerprint from reward_transactions where idempotency_key=$1', [idempotencyKey],
         );
@@ -222,12 +238,12 @@ export class RewardsService {
         throw new BadRequestException('Insufficient available reward points');
       }
       await client.query(
-        'update reward_accounts set balance_points=balance_points-$2,updated_at=now() where id=$1',
-        [customer.id, points],
+        'update reward_accounts set balance_points=$2,updated_at=now() where id=$1',
+        [customer.id, Number(customer.balance_points) - points],
       );
       await client.query(
-        'update reward_accounts set balance_points=balance_points+$2,updated_at=now() where id=$1',
-        [redemption.id, points],
+        'update reward_accounts set balance_points=$2,updated_at=now() where id=$1',
+        [redemption.id, Number(redemption.balance_points) + points],
       );
       await client.query(
         'insert into reward_entries(id,transaction_id,account_id,points_delta) values($1,$2,$3,$4)',
@@ -263,6 +279,7 @@ export class RewardsService {
       );
       let pointsExpired = 0;
       let lotsExpired = 0;
+      let expiryBalance = Number(expiry.balance_points);
       for (const lot of due.rows) {
         await client.query('select id from reward_accounts where id=$1 for update', [lot.account_id]);
         const currentLot = await client.query(
@@ -278,7 +295,7 @@ export class RewardsService {
            values($1,$2,$3,$4,'expire',$5,$6) on conflict(idempotency_key) do nothing returning id`,
           [proposedTransactionId, idempotencyKey, fingerprint, lot.owner_id, points, String(lot.id)],
         );
-        if (!inserted.rows[0]) continue;
+        if (!inserted.rows[0] || String(inserted.rows[0].id) !== proposedTransactionId) continue;
         const transactionId = String(inserted.rows[0].id);
         await client.query('update reward_lots set points_remaining=0 where id=$1', [lot.id]);
         await client.query(
