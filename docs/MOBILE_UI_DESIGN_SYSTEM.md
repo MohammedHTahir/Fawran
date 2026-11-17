@@ -98,3 +98,13 @@ Product direction: global business and personal finance workspace
 - [ ] Test empty, loading, error, offline, and long-list states.
 - [ ] Verify every amount, status, and disclosure against backend semantics.
 - [ ] Keep prototype and simulated-payment disclosures visible until live integrations are approved.
+
+## Implemented interaction patterns
+
+- Transaction rows are actionable and open a dedicated detail view.
+- Transaction detail displays only fields provided by the API model: type, amount, timestamp, memo, and transaction identifier. It does not invent settlement status or provider references.
+- Transaction details can be copied or shared using the native OS share sheet.
+- Transfer confirmation receipts can be copied or shared; they show the recipient, amount, fee presentation, and local confirmation time available to the client.
+- Account settings separate profile identity, language selection, and active-session security controls.
+- The current session cannot be revoked from its own row; sign-out and sign-out-all remain explicit confirmation actions.
+- Detail layouts adapt their reading alignment for Arabic RTL and English LTR.
