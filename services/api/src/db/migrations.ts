@@ -383,8 +383,9 @@ create table admin_audit_events (
   created_at timestamptz not null default now()
 );
 create index admin_audit_events_created_idx on admin_audit_events(created_at desc);
-` ,
-}] as const;
+`,
+  },
+] as const;
 
 /** Run as an explicit deployment step, never during API startup. */
 export async function runMigrations(pool: Pool): Promise<{ applied: number[]; current: number }> {
