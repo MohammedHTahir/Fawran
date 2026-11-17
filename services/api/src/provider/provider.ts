@@ -3,25 +3,42 @@ import { Module, ServiceUnavailableException } from '@nestjs/common';
 export const PAYMENT_PROVIDER = 'PAYMENT_PROVIDER';
 export type PayMethod = 'instapay' | 'card' | 'wallet';
 
-/** Port for an approved payment partner. A production adapter MUST deduplicate
- * charges by `reference` across retries and expose signed webhooks/reconciliation.
- * The method labels here are product categories, not direct InstaPay integrations. */
+/** Port for a licensed payment partner. Production has no concrete implementation
+ * until a partner is approved and configured. All references must be idempotent. */
 export interface PaymentProvider {
-  charge(r: { amount: number; method: PayMethod; reference: string }): Promise<{ ok: boolean; providerRef: string }>;
+  readonly name?: string;
+  charge(r: { amount: number; currency?: string; method: PayMethod; reference: string }): Promise<{ ok: boolean; providerRef: string }>;
+  refund(r: { amount: number; currency: string; providerRef: string; reference: string }): Promise<{ ok: boolean; providerRef: string }>;
+  payout(r: { amount: number; currency: string; destinationRef: string; reference: string }): Promise<{ ok: boolean; providerRef: string }>;
 }
 
-/** Dev-only mock. A card payment of exactly 1313 piasters is declined, to test failures. */
+/** Non-production simulator. It never connects to a bank, card network or PSP. */
 export class MockProvider implements PaymentProvider {
-  async charge(r: { amount: number; method: PayMethod; reference: string }) {
-    return { ok: !(r.method === 'card' && r.amount === 1313), providerRef: `mock_${r.reference}` };
+  readonly name = 'mock';
+
+  async charge(r: { amount: number; currency?: string; method: PayMethod; reference: string }) {
+    return { ok: !(r.method === 'card' && r.amount === 1313), providerRef: `mock_charge_${r.currency ?? 'EGP'}_${r.reference}` };
+  }
+
+  async refund(r: { amount: number; currency: string; providerRef: string; reference: string }) {
+    return { ok: true, providerRef: `mock_refund_${r.currency}_${r.reference}` };
+  }
+
+  async payout(r: { amount: number; currency: string; destinationRef: string; reference: string }) {
+    return { ok: true, providerRef: `mock_payout_${r.currency}_${r.reference}` };
   }
 }
 
 class UnconfiguredProductionPaymentProvider implements PaymentProvider {
+  readonly name = 'unconfigured';
   async charge(): Promise<{ ok: boolean; providerRef: string }> {
-    throw new ServiceUnavailableException(
-      'No licensed payment provider is configured. Mock payments are disabled in production.',
-    );
+    throw new ServiceUnavailableException('No licensed payment provider is configured. Mock payments are disabled in production.');
+  }
+  async refund(): Promise<{ ok: boolean; providerRef: string }> {
+    throw new ServiceUnavailableException('Refunds are disabled until a licensed payment partner is approved.');
+  }
+  async payout(): Promise<{ ok: boolean; providerRef: string }> {
+    throw new ServiceUnavailableException('Payouts are disabled until a licensed payment partner is approved.');
   }
 }
 
