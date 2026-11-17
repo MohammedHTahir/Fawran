@@ -112,7 +112,7 @@ describe('API flow', () => {
     const s = app.getHttpServer();
     const link = (await request(s).post('/links').set(h(bob)).send({ amount: 85_000, description: 'Order 1024' }).expect(201)).body;
     const view = (await request(s).get(`/links/${link.code}`).expect(200)).body;
-    expect(view).toEqual({ code: link.code, amount: 85_000, description: 'Order 1024', status: 'open' });
+    expect(view).toEqual({ code: link.code, amount: 85_000, description: 'Order 1024', status: 'open', currency: 'EGP', merchant_name: null });
     await request(s).post(`/links/${link.code}/pay`).send({ method: 'instapay' }).expect(201);
     await request(s).post(`/links/${link.code}/pay`).send({ method: 'instapay' }).expect(409);
     expect((await request(s).get('/wallet').set(h(bob))).body.balance).toBe(105_000);
