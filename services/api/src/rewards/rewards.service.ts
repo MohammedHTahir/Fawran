@@ -384,12 +384,21 @@ export class RewardsService {
     if (!invite.rows[0]) throw new NotFoundException('Referral code not found');
     const inviterId = String(invite.rows[0].owner_id);
     if (inviterId === userId) throw new BadRequestException('You cannot claim your own referral code');
+    const existingBeforeInsert = await this.pool.query(
+      'select id,status from reward_referrals where invitee_user_id=$1', [userId],
+    );
+    if (existingBeforeInsert.rows[0]) {
+      return { referralId: existingBeforeInsert.rows[0].id, status: existingBeforeInsert.rows[0].status, alreadyClaimed: true };
+    }
+    const proposedId = randomUUID();
     const inserted = await this.pool.query(
       `insert into reward_referrals(id,code,inviter_user_id,invitee_user_id)
        values($1,$2,$3,$4) on conflict(invitee_user_id) do nothing returning id,status`,
-      [randomUUID(), normalized, inviterId, userId],
+      [proposedId, normalized, inviterId, userId],
     );
-    if (inserted.rows[0]) return { referralId: inserted.rows[0].id, status: inserted.rows[0].status };
+    if (inserted.rows[0] && String(inserted.rows[0].id) === proposedId) {
+      return { referralId: inserted.rows[0].id, status: inserted.rows[0].status };
+    }
     const existing = await this.pool.query(
       'select id,status from reward_referrals where invitee_user_id=$1', [userId],
     );
