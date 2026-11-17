@@ -25,6 +25,20 @@ describe('API flow', () => {
     await request(app.getHttpServer()).get('/wallet').expect(401);
   });
 
+  it('creates and selects separate currency wallets without changing the default EGP wallet', async () => {
+    const s = app.getHttpServer();
+    const created = await request(s).post('/wallets').set(h(alice)).send({ currency: 'AED' }).expect(201);
+    expect(created.body).toMatchObject({ currency: 'AED', created: true });
+    const duplicate = await request(s).post('/wallets').set(h(alice)).send({ currency: 'aed' }).expect(201);
+    expect(duplicate.body).toMatchObject({ currency: 'AED', created: false });
+    const wallet = await request(s).get('/wallet?currency=AED').set(h(alice)).expect(200);
+    expect(wallet.body).toMatchObject({ accountId: created.body.accountId, currency: 'AED', balance: 0 });
+    const wallets = await request(s).get('/wallets').set(h(alice)).expect(200);
+    expect(wallets.body.map((item: any) => item.currency)).toContain('AED');
+    expect((await request(s).get('/wallet').set(h(alice))).body.currency).toBe('EGP');
+    await request(s).post('/wallets').set(h(alice)).send({ currency: 'JPY' }).expect(400);
+  });
+
   it('top up, send money, replay is safe, overdraft blocked', async () => {
     const s = app.getHttpServer();
     await request(s).post('/wallet/topup').set(h(alice, 'topup-0001')).send({ amount: 50_000, method: 'instapay' }).expect(201);
