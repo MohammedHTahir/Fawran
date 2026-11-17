@@ -162,7 +162,7 @@ create index if not exists provider_events_pending_idx
 create index if not exists provider_events_intent_idx
   on provider_events(payment_intent_id, received_at);
 `,
-}}, {
+}, {
   version: 6,
   name: 'multi_currency_accounts_and_payment_context',
   sql: `
