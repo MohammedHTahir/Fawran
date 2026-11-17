@@ -98,7 +98,7 @@ export function toMinorUnits(amount: string, minorUnit: number): bigint {
     throw new Error('Currency minor unit must be an integer between 0 and 6');
   }
   const normalized = amount.trim();
-  const match = /^(0|[1-9]\\d*)(?:\\.(\\d+))?$/.exec(normalized);
+  const match = /^(0|[1-9]\d*)(?:\.(\d+))?$/.exec(normalized);
   if (!match) throw new Error('Amount must be a positive decimal string');
   const fraction = match[2] ?? '';
   if (fraction.length > minorUnit) {
