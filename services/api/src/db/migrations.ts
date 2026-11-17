@@ -187,7 +187,7 @@ alter table payment_intents add constraint payment_intents_currency_code_check
   check (currency in ('AED','EGP','SAR','GBP','USD'));
 create index if not exists accounts_owner_currency_idx on accounts(owner_id, currency);
 `,
-}}, {
+}, {
   version: 7,
   name: 'rewards_points_ledger_and_campaign_foundation',
   sql: `
