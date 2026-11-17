@@ -8,7 +8,7 @@ import { LEDGER_PORT, LedgerPort } from '../ledger/ledger.port';
 import { PAYMENT_PROVIDER, PaymentProvider, PayMethod, ProviderModule } from '../provider/provider';
 import { getMarketByCurrency } from '../markets/market-registry';
 
-// Placeholder limits in piasters. Real limits must come from the licensed partner's policy and KYC tier.
+// Temporary test limits in currency minor units; production limits are market/KYC policy. Real limits must come from the licensed partner's policy and KYC tier.
 export const LIMITS = { perTransfer: 5_000_000, perTopup: 5_000_000 };
 
 class TransferDto {
@@ -60,24 +60,32 @@ export class WalletController {
     const existing = await this.pool.query(
       'select id from accounts where owner_id=$1 and currency=$2', [u.id, currency]);
     if (existing.rows[0]) return { accountId: existing.rows[0].id, currency, created: false };
-    const accountId = await this.ledger.createAccount(u.id, 'user', currency);
-    return { accountId, currency, created: true };
+    try {
+      const accountId = await this.ledger.createAccount(u.id, 'user', currency);
+      return { accountId, currency, created: true };
+    } catch (error: any) {
+      if (error?.code !== '23505') throw error;
+      const raced = await this.pool.query(
+        'select id from accounts where owner_id=$1 and currency=$2', [u.id, currency]);
+      if (!raced.rows[0]) throw error;
+      return { accountId: raced.rows[0].id, currency, created: false };
+    }
   }
 
   @Get('wallet')
   async wallet(@CurrentUser() u: AuthUser, @Query('currency') requestedCurrency = 'EGP') {
     const currency = requestedCurrency.trim().toUpperCase();
-    const accountId = currency === 'EGP' ? u.accountId : await this.accountForCurrency(u.id, currency);
     const market = getMarketByCurrency(currency);
     if (!market) throw new BadRequestException('Unsupported wallet currency');
+    const accountId = currency === 'EGP' ? u.accountId : await this.accountForCurrency(u.id, currency);
     return { accountId, balance: await this.ledger.balance(accountId), currency, unit: 'minor' };
   }
 
   @Get('transactions')
   async transactions(@CurrentUser() u: AuthUser, @Query('currency') requestedCurrency = 'EGP') {
     const currency = requestedCurrency.trim().toUpperCase();
-    const accountId = currency === 'EGP' ? u.accountId : await this.accountForCurrency(u.id, currency);
     if (!getMarketByCurrency(currency)) throw new BadRequestException('Unsupported wallet currency');
+    const accountId = currency === 'EGP' ? u.accountId : await this.accountForCurrency(u.id, currency);
     return this.ledger.history(accountId);
   }
 
