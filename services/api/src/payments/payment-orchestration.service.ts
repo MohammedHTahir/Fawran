@@ -252,6 +252,19 @@ export class PaymentOrchestrationService {
     }
   }
 
+  async listPayouts(userId: string, merchantId: string) {
+    const membership = await this.pool.query(
+      'select role from merchant_members where merchant_id=$1 and user_id=$2',
+      [merchantId, userId],
+    );
+    if (!membership.rows[0]) throw new NotFoundException('Merchant not found');
+    const result = await this.pool.query(
+      'select id,amount,currency,status,blocked_reason,created_at,updated_at from payout_requests where merchant_id=$1 order by created_at desc',
+      [merchantId],
+    );
+    return result.rows.map((row: any) => ({ ...row, amount: Number(row.amount) }));
+  }
+
   async requestPayout(userId: string, merchantId: string, amount: number, currency: string, rawKey: string) {
     const idempotencyKey = this.requireKey(rawKey);
     const normalizedCurrency = currency.trim().toUpperCase();
@@ -281,9 +294,9 @@ export class PaymentOrchestrationService {
     }
     const payoutId = randomUUID();
     await this.pool.query(
-      `insert into payout_requests(id,idempotency_key,merchant_id,merchant_account_id,amount,currency,status,blocked_reason)
-       values($1,$2,$3,$4,$5,$6,'blocked','licensed_partner_and_market_approval_required')`,
-      [payoutId, idempotencyKey, merchantId, merchant.rows[0].merchant_account_id, amount, normalizedCurrency],
+      `insert into payout_requests(id,idempotency_key,request_fingerprint,merchant_id,merchant_account_id,amount,currency,status,blocked_reason)
+       values($1,$2,$3,$4,$5,$6,$7,'blocked','licensed_partner_and_market_approval_required')`,
+      [payoutId, idempotencyKey, fingerprint, merchantId, merchant.rows[0].merchant_account_id, amount, normalizedCurrency],
     );
     return { payoutId, status: 'blocked', blockedReason: 'licensed_partner_and_market_approval_required', replayed: false };
   }
