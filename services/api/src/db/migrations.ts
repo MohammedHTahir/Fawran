@@ -162,6 +162,321 @@ create index if not exists provider_events_pending_idx
 create index if not exists provider_events_intent_idx
   on provider_events(payment_intent_id, received_at);
 `,
+}}, {
+  version: 6,
+  name: 'multi_currency_accounts_and_payment_context',
+  sql: `
+-- Existing wallets remain EGP. No balance conversion or ledger rewrite occurs.
+alter table accounts drop constraint if exists accounts_owner_id_key;
+drop index if exists accounts_owner_unique;
+create unique index if not exists accounts_owner_currency_unique
+  on accounts(owner_id, currency) where owner_id is not null;
+alter table accounts add constraint accounts_currency_code_check
+  check (currency ~ '^[A-Z]{3}, never during API startup. */
+export async function runMigrations(pool: Pool): Promise<{ applied: number[]; current: number }> {
+  await pool.query(`create table if not exists schema_migrations (
+    version integer primary key, name text not null, applied_at timestamptz not null default now()
+  )`);
+  const applied: number[] = [];
+  for (const migration of MIGRATIONS) {
+    const existing = await pool.query('select version from schema_migrations where version=$1', [migration.version]);
+    if (existing.rows.length) continue;
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const check = await client.query('select version from schema_migrations where version=$1', [migration.version]);
+      if (!check.rows.length) {
+        await client.query(migration.sql);
+        for (const constraint of INTEGRITY_CONSTRAINTS) {
+          const present = await client.query(
+            'select constraint_name from information_schema.table_constraints where table_name = $1 and constraint_name = $2',
+            [constraint.table, constraint.name],
+          );
+          if (!present.rows.length) {
+            try {
+              await client.query(constraint.sql);
+            } catch (error) {
+              // pg-mem can omit already-installed constraints from its
+              // information_schema view. Ignore only a duplicate of this
+              // exact named constraint; all other migration errors fail closed.
+              const message = error instanceof Error ? error.message : String(error);
+              if (!message.includes(constraint.name) || !/already exists|duplicate/i.test(message)) throw error;
+            }
+          }
+        }
+        await client.query('insert into schema_migrations(version,name) values($1,$2)', [migration.version, migration.name]);
+        applied.push(migration.version);
+      }
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      throw error;
+    } finally { client.release(); }
+  }
+  const result = await pool.query('select coalesce(max(version),0)::int as version from schema_migrations');
+  return { applied, current: Number(result.rows[0]?.version ?? 0) };
+}
+
+export async function assertMigrationsCurrent(pool: Pool): Promise<void> {
+  const expected = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;
+  let current = 0;
+  try {
+    const result = await pool.query('select coalesce(max(version),0)::int as version from schema_migrations');
+    current = Number(result.rows[0]?.version ?? 0);
+  } catch {
+    throw new Error('Database migrations are missing. Run npm run db:migrate before starting the API.');
+  }
+  if (current !== expected) {
+    throw new Error(`Database schema is at migration ${current}; expected ${expected}. Run npm run db:migrate before starting the API.`);
+  }
+}
+);
+alter table ledger_transactions add column if not exists currency text not null default 'EGP';
+alter table ledger_transactions add constraint ledger_transactions_currency_code_check
+  check (currency ~ '^[A-Z]{3}, never during API startup. */
+export async function runMigrations(pool: Pool): Promise<{ applied: number[]; current: number }> {
+  await pool.query(`create table if not exists schema_migrations (
+    version integer primary key, name text not null, applied_at timestamptz not null default now()
+  )`);
+  const applied: number[] = [];
+  for (const migration of MIGRATIONS) {
+    const existing = await pool.query('select version from schema_migrations where version=$1', [migration.version]);
+    if (existing.rows.length) continue;
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const check = await client.query('select version from schema_migrations where version=$1', [migration.version]);
+      if (!check.rows.length) {
+        await client.query(migration.sql);
+        for (const constraint of INTEGRITY_CONSTRAINTS) {
+          const present = await client.query(
+            'select constraint_name from information_schema.table_constraints where table_name = $1 and constraint_name = $2',
+            [constraint.table, constraint.name],
+          );
+          if (!present.rows.length) {
+            try {
+              await client.query(constraint.sql);
+            } catch (error) {
+              // pg-mem can omit already-installed constraints from its
+              // information_schema view. Ignore only a duplicate of this
+              // exact named constraint; all other migration errors fail closed.
+              const message = error instanceof Error ? error.message : String(error);
+              if (!message.includes(constraint.name) || !/already exists|duplicate/i.test(message)) throw error;
+            }
+          }
+        }
+        await client.query('insert into schema_migrations(version,name) values($1,$2)', [migration.version, migration.name]);
+        applied.push(migration.version);
+      }
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      throw error;
+    } finally { client.release(); }
+  }
+  const result = await pool.query('select coalesce(max(version),0)::int as version from schema_migrations');
+  return { applied, current: Number(result.rows[0]?.version ?? 0) };
+}
+
+export async function assertMigrationsCurrent(pool: Pool): Promise<void> {
+  const expected = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;
+  let current = 0;
+  try {
+    const result = await pool.query('select coalesce(max(version),0)::int as version from schema_migrations');
+    current = Number(result.rows[0]?.version ?? 0);
+  } catch {
+    throw new Error('Database migrations are missing. Run npm run db:migrate before starting the API.');
+  }
+  if (current !== expected) {
+    throw new Error(`Database schema is at migration ${current}; expected ${expected}. Run npm run db:migrate before starting the API.`);
+  }
+}
+);
+alter table payment_attempts add column if not exists currency text not null default 'EGP';
+alter table payment_attempts add constraint payment_attempts_currency_code_check
+  check (currency ~ '^[A-Z]{3}, never during API startup. */
+export async function runMigrations(pool: Pool): Promise<{ applied: number[]; current: number }> {
+  await pool.query(`create table if not exists schema_migrations (
+    version integer primary key, name text not null, applied_at timestamptz not null default now()
+  )`);
+  const applied: number[] = [];
+  for (const migration of MIGRATIONS) {
+    const existing = await pool.query('select version from schema_migrations where version=$1', [migration.version]);
+    if (existing.rows.length) continue;
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const check = await client.query('select version from schema_migrations where version=$1', [migration.version]);
+      if (!check.rows.length) {
+        await client.query(migration.sql);
+        for (const constraint of INTEGRITY_CONSTRAINTS) {
+          const present = await client.query(
+            'select constraint_name from information_schema.table_constraints where table_name = $1 and constraint_name = $2',
+            [constraint.table, constraint.name],
+          );
+          if (!present.rows.length) {
+            try {
+              await client.query(constraint.sql);
+            } catch (error) {
+              // pg-mem can omit already-installed constraints from its
+              // information_schema view. Ignore only a duplicate of this
+              // exact named constraint; all other migration errors fail closed.
+              const message = error instanceof Error ? error.message : String(error);
+              if (!message.includes(constraint.name) || !/already exists|duplicate/i.test(message)) throw error;
+            }
+          }
+        }
+        await client.query('insert into schema_migrations(version,name) values($1,$2)', [migration.version, migration.name]);
+        applied.push(migration.version);
+      }
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      throw error;
+    } finally { client.release(); }
+  }
+  const result = await pool.query('select coalesce(max(version),0)::int as version from schema_migrations');
+  return { applied, current: Number(result.rows[0]?.version ?? 0) };
+}
+
+export async function assertMigrationsCurrent(pool: Pool): Promise<void> {
+  const expected = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;
+  let current = 0;
+  try {
+    const result = await pool.query('select coalesce(max(version),0)::int as version from schema_migrations');
+    current = Number(result.rows[0]?.version ?? 0);
+  } catch {
+    throw new Error('Database migrations are missing. Run npm run db:migrate before starting the API.');
+  }
+  if (current !== expected) {
+    throw new Error(`Database schema is at migration ${current}; expected ${expected}. Run npm run db:migrate before starting the API.`);
+  }
+}
+);
+alter table payment_links add column if not exists currency text not null default 'EGP';
+alter table payment_links add constraint payment_links_currency_code_check
+  check (currency ~ '^[A-Z]{3}, never during API startup. */
+export async function runMigrations(pool: Pool): Promise<{ applied: number[]; current: number }> {
+  await pool.query(`create table if not exists schema_migrations (
+    version integer primary key, name text not null, applied_at timestamptz not null default now()
+  )`);
+  const applied: number[] = [];
+  for (const migration of MIGRATIONS) {
+    const existing = await pool.query('select version from schema_migrations where version=$1', [migration.version]);
+    if (existing.rows.length) continue;
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const check = await client.query('select version from schema_migrations where version=$1', [migration.version]);
+      if (!check.rows.length) {
+        await client.query(migration.sql);
+        for (const constraint of INTEGRITY_CONSTRAINTS) {
+          const present = await client.query(
+            'select constraint_name from information_schema.table_constraints where table_name = $1 and constraint_name = $2',
+            [constraint.table, constraint.name],
+          );
+          if (!present.rows.length) {
+            try {
+              await client.query(constraint.sql);
+            } catch (error) {
+              // pg-mem can omit already-installed constraints from its
+              // information_schema view. Ignore only a duplicate of this
+              // exact named constraint; all other migration errors fail closed.
+              const message = error instanceof Error ? error.message : String(error);
+              if (!message.includes(constraint.name) || !/already exists|duplicate/i.test(message)) throw error;
+            }
+          }
+        }
+        await client.query('insert into schema_migrations(version,name) values($1,$2)', [migration.version, migration.name]);
+        applied.push(migration.version);
+      }
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      throw error;
+    } finally { client.release(); }
+  }
+  const result = await pool.query('select coalesce(max(version),0)::int as version from schema_migrations');
+  return { applied, current: Number(result.rows[0]?.version ?? 0) };
+}
+
+export async function assertMigrationsCurrent(pool: Pool): Promise<void> {
+  const expected = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;
+  let current = 0;
+  try {
+    const result = await pool.query('select coalesce(max(version),0)::int as version from schema_migrations');
+    current = Number(result.rows[0]?.version ?? 0);
+  } catch {
+    throw new Error('Database migrations are missing. Run npm run db:migrate before starting the API.');
+  }
+  if (current !== expected) {
+    throw new Error(`Database schema is at migration ${current}; expected ${expected}. Run npm run db:migrate before starting the API.`);
+  }
+}
+);
+alter table payment_intents drop constraint if exists payment_intents_currency_check;
+alter table payment_intents add constraint payment_intents_currency_code_check
+  check (currency ~ '^[A-Z]{3}, never during API startup. */
+export async function runMigrations(pool: Pool): Promise<{ applied: number[]; current: number }> {
+  await pool.query(`create table if not exists schema_migrations (
+    version integer primary key, name text not null, applied_at timestamptz not null default now()
+  )`);
+  const applied: number[] = [];
+  for (const migration of MIGRATIONS) {
+    const existing = await pool.query('select version from schema_migrations where version=$1', [migration.version]);
+    if (existing.rows.length) continue;
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const check = await client.query('select version from schema_migrations where version=$1', [migration.version]);
+      if (!check.rows.length) {
+        await client.query(migration.sql);
+        for (const constraint of INTEGRITY_CONSTRAINTS) {
+          const present = await client.query(
+            'select constraint_name from information_schema.table_constraints where table_name = $1 and constraint_name = $2',
+            [constraint.table, constraint.name],
+          );
+          if (!present.rows.length) {
+            try {
+              await client.query(constraint.sql);
+            } catch (error) {
+              // pg-mem can omit already-installed constraints from its
+              // information_schema view. Ignore only a duplicate of this
+              // exact named constraint; all other migration errors fail closed.
+              const message = error instanceof Error ? error.message : String(error);
+              if (!message.includes(constraint.name) || !/already exists|duplicate/i.test(message)) throw error;
+            }
+          }
+        }
+        await client.query('insert into schema_migrations(version,name) values($1,$2)', [migration.version, migration.name]);
+        applied.push(migration.version);
+      }
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      throw error;
+    } finally { client.release(); }
+  }
+  const result = await pool.query('select coalesce(max(version),0)::int as version from schema_migrations');
+  return { applied, current: Number(result.rows[0]?.version ?? 0) };
+}
+
+export async function assertMigrationsCurrent(pool: Pool): Promise<void> {
+  const expected = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;
+  let current = 0;
+  try {
+    const result = await pool.query('select coalesce(max(version),0)::int as version from schema_migrations');
+    current = Number(result.rows[0]?.version ?? 0);
+  } catch {
+    throw new Error('Database migrations are missing. Run npm run db:migrate before starting the API.');
+  }
+  if (current !== expected) {
+    throw new Error(`Database schema is at migration ${current}; expected ${expected}. Run npm run db:migrate before starting the API.`);
+  }
+}
+);
+create index if not exists accounts_owner_currency_idx on accounts(owner_id, currency);
+`,
 }] as const;
 
 /** Run as an explicit deployment step, never during API startup. */
