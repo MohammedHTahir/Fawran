@@ -31,6 +31,39 @@ describe('API flow', () => {
     expect(response.body.referralCode).toMatch(/^[A-F0-9]{16}$/);
   });
 
+  it('registers merchants, enforces KYB review and keeps settlement blocked', async () => {
+    const payload = JSON.parse(Buffer.from(alice.split('.')[1], 'base64url').toString('utf8'));
+    const ownerId = payload.sub as string;
+    const created = await request(app.getHttpServer()).post('/merchants').set(h(alice))
+      .send({ legalName: 'Example Trading LLC', displayName: 'Example Store', countryCode: 'AE', currency: 'AED' })
+      .expect(201);
+    expect(created.body).toMatchObject({ currency: 'AED', kybStatus: 'not_started', paymentsEnabled: false });
+    const merchantId = created.body.merchantId as string;
+    await request(app.getHttpServer()).post(`/merchants/${merchantId}/payment-links`).set(h(alice))
+      .send({ amount: 2500, currency: 'AED' }).expect(403);
+    const kyb = await request(app.getHttpServer()).post(`/merchants/${merchantId}/kyb/submit`).set(h(alice))
+      .send({ registrationNumber: 'AE-REG-1001', documentTypes: ['trade_license','beneficial_owner_id'] }).expect(201);
+    expect(kyb.body.kybStatus).toBe('pending');
+
+    await pool.query("insert into admin_roles(user_id,role) values($1,'compliance_admin')", [ownerId]);
+    const decision = await request(app.getHttpServer()).post(`/admin/merchants/${merchantId}/kyb/decision`)
+      .set(h(alice)).send({ decision: 'approved', reason: 'Test environment review' }).expect(201);
+    expect(decision.body).toMatchObject({ kybStatus: 'approved', status: 'active', settlementStatus: 'blocked', paymentsEnabled: false });
+
+    const link = await request(app.getHttpServer()).post(`/merchants/${merchantId}/payment-links`).set(h(alice))
+      .send({ amount: 2500, currency: 'AED', description: 'Test checkout' }).expect(201);
+    expect(link.body).toMatchObject({ currency: 'AED', settlementStatus: 'blocked' });
+    await request(app.getHttpServer()).post(`/links/${link.body.code}/pay`).send({ method: 'card' }).expect(409);
+
+    const campaign = await request(app.getHttpServer()).post(`/merchants/${merchantId}/campaigns`).set(h(alice))
+      .send({ name: 'Launch rewards', currency: 'AED', budgetMinor: 100000, pointsPerMinor: 1 }).expect(201);
+    expect(campaign.body).toMatchObject({ status: 'pending_funding', funded: false, pointsIssuanceEnabled: false });
+    const merchant = await request(app.getHttpServer()).get(`/merchants/${merchantId}`).set(h(alice)).expect(200);
+    expect(merchant.body.accounts[0]).toMatchObject({ currency: 'AED', balance: 0, settlementStatus: 'blocked' });
+    const audit = await pool.query("select action from admin_audit_events where entity_id=$1", [merchantId]);
+    expect(audit.rows.map((row: any) => row.action)).toContain('merchant_kyb_decision');
+  });
+
   it('creates and selects separate currency wallets without changing the default EGP wallet', async () => {
     const s = app.getHttpServer();
     const created = await request(s).post('/wallets').set(h(alice)).send({ currency: 'AED' }).expect(201);
