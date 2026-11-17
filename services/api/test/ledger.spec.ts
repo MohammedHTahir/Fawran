@@ -1,11 +1,13 @@
+import { INestApplication } from '@nestjs/common';
 import { LedgerService, InsufficientFunds } from '../src/ledger/ledger.service';
 import { PG_POOL, SYSTEM_PROVIDER_ACCOUNT } from '../src/db/db.module';
 import { makeApp } from './helpers';
 
 describe('Ledger', () => {
-  let ledger: LedgerService; let a: string; let b: string; let close: () => Promise<void>;
+  let app: INestApplication; let ledger: LedgerService; let a: string; let b: string; let close: () => Promise<void>;
   beforeEach(async () => {
-    const { app } = await makeApp();
+    const created = await makeApp();
+    app = created.app;
     close = () => app.close();
     ledger = app.get(LedgerService);
     a = await ledger.createAccount(null); b = await ledger.createAccount(null);
