@@ -31,7 +31,7 @@ export class RewardsService {
 
   private async customerAccount(client: PoolClient, userId: string) {
     await client.query(
-      "insert into reward_accounts(id,owner_id,kind) values($1,$2,'customer') on conflict do nothing",
+      "insert into reward_accounts(id,owner_id,kind) values($1,$2,'customer') on conflict(owner_id) do nothing",
       [randomUUID(), userId],
     );
     const result = await client.query(
@@ -44,12 +44,12 @@ export class RewardsService {
 
   private async systemAccount(client: PoolClient, kind: RewardSystemKind) {
     await client.query(
-      'insert into reward_accounts(id,owner_id,kind) values($1,null,$2) on conflict do nothing',
-      [randomUUID(), kind],
+      'insert into reward_accounts(id,owner_id,kind) values($1,null,$2) on conflict(id) do nothing',
+      [`reward:system:${kind}`, kind],
     );
     const result = await client.query(
-      'select id,balance_points from reward_accounts where owner_id is null and kind=$1 for update',
-      [kind],
+      'select id,balance_points from reward_accounts where id=$1 for update',
+      [`reward:system:${kind}`],
     );
     if (!result.rows[0]) throw new Error(`Rewards system account ${kind} is unavailable`);
     return result.rows[0];
