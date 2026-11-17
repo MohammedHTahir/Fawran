@@ -14,7 +14,7 @@ describe('multi-market registry', () => {
   it('normalizes country codes and returns isolated profile data', () => {
     const profile = getMarketProfile(' ae ');
     expect(profile?.currency).toBe('AED');
-    profile?.supportedLocales.push('xx');
+    expect(profile?.supportedLocales).not.toBe(getMarketProfile('AE')?.supportedLocales);
     expect(getMarketProfile('AE')?.supportedLocales).toEqual(['en-AE', 'ar-AE']);
   });
 
