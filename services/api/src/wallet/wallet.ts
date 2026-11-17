@@ -150,7 +150,7 @@ export class WalletController {
     if (!r.rows[0]) throw new NotFoundException('Recipient does not have a wallet in this currency');
     const t = await this.ledger.transfer({ from: fromAccount, to: r.rows[0].id, amount: b.amount,
       currency, idemKey: `${u.id}:p2p:${currency}:${requireKey(key)}`, kind: 'p2p', memo: b.note });
-    return { txnId: t.txnId, replayed: t.replayed, balance: await this.ledger.balance(u.accountId) };
+    return { txnId: t.txnId, replayed: t.replayed, currency, balance: await this.ledger.balance(fromAccount) };
   }
 }
 
