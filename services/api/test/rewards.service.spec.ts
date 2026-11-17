@@ -81,6 +81,11 @@ describe('RewardsService', () => {
     expect(first.referralCode).toBe(second.referralCode);
     const claim = await rewards.claimReferral('reward-user-2', first.referralCode);
     expect(claim.status).toBe('pending');
+    const qualification = await rewards.qualifyReferral('reward-user-2', 250);
+    expect(qualification).toMatchObject({ rewarded: true, pointsPerUser: 250 });
+    expect((await rewards.summary('reward-user-1')).pointsBalance).toBe(250);
+    expect((await rewards.summary('reward-user-2')).pointsBalance).toBe(250);
+    expect(await rewards.qualifyReferral('reward-user-2', 250)).toMatchObject({ rewarded: false });
     expect((await rewards.claimReferral('reward-user-2', first.referralCode)).alreadyClaimed).toBe(true);
     await expect(rewards.claimReferral('reward-user-1', first.referralCode))
       .rejects.toBeInstanceOf(BadRequestException);
