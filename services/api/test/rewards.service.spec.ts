@@ -23,13 +23,14 @@ describe('RewardsService', () => {
   });
 
   it('earns points idempotently and records balanced point-ledger entries', async () => {
+    const expiresAt = new Date(Date.now() + 60_000);
     const earned = await rewards.earn({
       userId: 'reward-user-1', points: 1200, idempotencyKey: 'purchase:order-1001',
-      reference: 'order-1001', expiresAt: new Date(Date.now() + 60_000),
+      reference: 'order-1001', expiresAt,
     });
     const replay = await rewards.earn({
       userId: 'reward-user-1', points: 1200, idempotencyKey: 'purchase:order-1001',
-      reference: 'order-1001', expiresAt: new Date(Date.now() + 60_000),
+      reference: 'order-1001', expiresAt,
     });
     expect(earned.replayed).toBe(false);
     expect(replay).toMatchObject({ transactionId: earned.transactionId, replayed: true });
