@@ -172,19 +172,19 @@ drop index if exists accounts_owner_unique;
 create unique index if not exists accounts_owner_currency_unique
   on accounts(owner_id, currency) where owner_id is not null;
 alter table accounts add constraint accounts_currency_code_check
-  check (currency = upper(currency) and length(currency) = 3);
+  check (currency in ('AED','EGP','SAR','GBP','USD'));
 alter table ledger_transactions add column if not exists currency text not null default 'EGP';
 alter table ledger_transactions add constraint ledger_transactions_currency_code_check
-  check (currency = upper(currency) and length(currency) = 3);
+  check (currency in ('AED','EGP','SAR','GBP','USD'));
 alter table payment_attempts add column if not exists currency text not null default 'EGP';
 alter table payment_attempts add constraint payment_attempts_currency_code_check
-  check (currency = upper(currency) and length(currency) = 3);
+  check (currency in ('AED','EGP','SAR','GBP','USD'));
 alter table payment_links add column if not exists currency text not null default 'EGP';
 alter table payment_links add constraint payment_links_currency_code_check
-  check (currency = upper(currency) and length(currency) = 3);
+  check (currency in ('AED','EGP','SAR','GBP','USD'));
 alter table payment_intents drop constraint if exists payment_intents_currency_check;
 alter table payment_intents add constraint payment_intents_currency_code_check
-  check (currency = upper(currency) and length(currency) = 3);
+  check (currency in ('AED','EGP','SAR','GBP','USD'));
 create index if not exists accounts_owner_currency_idx on accounts(owner_id, currency);
 `,
 }] as const;
