@@ -107,7 +107,7 @@ For each market independently:
 
 ## Current implementation reality
 
-The current app is an EGP prototype. PostgreSQL remains the default ledger; Blnk is opt-in and its adapter is not yet a production cutover. The current wallet API and mobile UI contain EGP assumptions. The payment-intent store is a foundation, not a live provider integration. The market registry added alongside this plan is metadata only and does not make the product multi-currency or production-ready.
+The current app remains an EGP-first prototype, but the multi-currency runtime foundation is now being implemented: wallet accounts carry currency, per-user currency wallets are supported, PostgreSQL transfers enforce same-currency movement, transaction history records currency, payment-intent records accept currency, and Blnk configuration is separated by currency. The migration preserves existing EGP balances without conversion. The mobile app, country-aware onboarding, payment links, test-provider flows and operational tooling still need currency/market support. This work does not make Fawran production-ready.
 
 ## Exit criteria for any live market
 
