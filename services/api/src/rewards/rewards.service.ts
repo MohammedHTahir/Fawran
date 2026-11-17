@@ -138,6 +138,8 @@ export class RewardsService {
       }
 
       const transactionId = String(inserted.rows[0].id);
+      const persisted = await client.query('select id from reward_transactions where id=$1', [transactionId]);
+      if (!persisted.rows[0]) throw new Error('Reward transaction was not persisted before its ledger entries');
       const customer = await this.customerAccount(client, input.userId);
       const issuance = await this.systemAccount(client, 'issuance');
       const lifetime = Number(customer.lifetime_earned_points) + input.points;
@@ -180,7 +182,7 @@ export class RewardsService {
     const client = await this.pool.connect();
     try {
       await client.query('begin');
-      const transactionId = randomUUID();
+      const proposedTransactionId = randomUUID();
       const inserted = await client.query(
         `insert into reward_transactions(id,idempotency_key,request_fingerprint,owner_id,kind,points,reference)
          values($1,$2,$3,$4,'redeem',$5,$6) on conflict(idempotency_key) do nothing returning id`,
@@ -198,6 +200,8 @@ export class RewardsService {
       }
 
       const transactionId = String(inserted.rows[0].id);
+      const persisted = await client.query('select id from reward_transactions where id=$1', [transactionId]);
+      if (!persisted.rows[0]) throw new Error('Reward transaction was not persisted before its ledger entries');
       const customer = await this.customerAccount(client, userId);
       const redemption = await this.systemAccount(client, 'redemption');
       const lots = await client.query(
