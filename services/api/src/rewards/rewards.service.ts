@@ -288,6 +288,55 @@ export class RewardsService {
     }
   }
 
+  /** Called by a trusted payment-settlement workflow after the invitee qualifies. */
+  async qualifyReferral(inviteeUserId: string, rewardPoints = 500) {
+    if (!Number.isSafeInteger(rewardPoints) || rewardPoints <= 0) {
+      throw new BadRequestException('Referral reward must be a positive safe integer');
+    }
+    const client = await this.pool.connect();
+    let referral: any;
+    try {
+      await client.query('begin');
+      const result = await client.query(
+        "select id,inviter_user_id,status from reward_referrals where invitee_user_id=$1 and status in ('pending','qualified') for update",
+        [inviteeUserId],
+      );
+      if (!result.rows[0]) {
+        await client.query('commit');
+        return { rewarded: false };
+      }
+      referral = result.rows[0];
+      if (referral.status === 'pending') {
+        await client.query(
+          "update reward_referrals set status='qualified',qualified_at=now() where id=$1",
+          [referral.id],
+        );
+      }
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    // Each side has a distinct idempotency key. A retry after a partial failure
+    // safely replays the completed side and finishes the other.
+    await this.earn({
+      userId: String(referral.inviter_user_id), points: rewardPoints,
+      idempotencyKey: `referral:${referral.id}:inviter`, reference: `referral:${referral.id}`,
+    });
+    await this.earn({
+      userId: inviteeUserId, points: rewardPoints,
+      idempotencyKey: `referral:${referral.id}:invitee`, reference: `referral:${referral.id}`,
+    });
+    await this.pool.query(
+      "update reward_referrals set status='rewarded',rewarded_at=coalesce(rewarded_at,now()) where id=$1 and status='qualified'",
+      [referral.id],
+    );
+    return { rewarded: true, referralId: String(referral.id), pointsPerUser: rewardPoints };
+  }
+
   async claimReferral(userId: string, code: string) {
     const normalized = code.trim().toUpperCase();
     const invite = await this.pool.query('select owner_id from reward_invite_codes where code=$1', [normalized]);
