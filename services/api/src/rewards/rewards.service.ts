@@ -99,6 +99,7 @@ export class RewardsService {
 
   /** Internal settlement hook. Never expose this as an unauthenticated client endpoint. */
   async earn(input: EarnPointsInput): Promise<{ transactionId: string; replayed: boolean }> {
+    if (input.campaignId) throw new BadRequestException('Campaign reward issuance is disabled until campaign funding controls are approved');
     if (!Number.isSafeInteger(input.points) || input.points <= 0) {
       throw new BadRequestException('Reward points must be a positive safe integer');
     }
@@ -139,6 +140,7 @@ export class RewardsService {
       const customer = await this.customerAccount(client, input.userId);
       const issuance = await this.systemAccount(client, 'issuance');
       const lifetime = Number(customer.lifetime_earned_points) + input.points;
+      if (!Number.isSafeInteger(lifetime)) throw new BadRequestException('Lifetime reward points exceed the supported integer range');
       await client.query(
         'update reward_accounts set balance_points=balance_points+$2,lifetime_earned_points=lifetime_earned_points+$2,tier=$3,updated_at=now() where id=$1',
         [customer.id, input.points, this.tierFor(lifetime)],
