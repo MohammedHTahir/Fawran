@@ -241,16 +241,20 @@ export class RewardsService {
       await client.query('begin');
       const expiry = await this.systemAccount(client, 'expiry');
       const due = await client.query(
-        `select l.id,l.account_id,l.points_remaining,a.owner_id
+        `select l.id,l.account_id,a.owner_id
          from reward_lots l join reward_accounts a on a.id=l.account_id
          where l.points_remaining>0 and l.expires_at is not null and l.expires_at<=now()
-         order by l.expires_at asc limit $1 for update`,
+         order by l.expires_at asc limit $1`,
         [safeLimit],
       );
       let pointsExpired = 0;
       let lotsExpired = 0;
       for (const lot of due.rows) {
-        const points = Number(lot.points_remaining);
+        await client.query('select id from reward_accounts where id=$1 for update', [lot.account_id]);
+        const currentLot = await client.query(
+          'select points_remaining from reward_lots where id=$1 for update', [lot.id],
+        );
+        const points = Number(currentLot.rows[0]?.points_remaining ?? 0);
         if (points <= 0) continue;
         const transactionId = randomUUID();
         const idempotencyKey = `reward-expiry:${lot.id}`;
