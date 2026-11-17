@@ -44,6 +44,8 @@ describe('API flow', () => {
     const kyb = await request(app.getHttpServer()).post(`/merchants/${merchantId}/kyb/submit`).set(h(alice))
       .send({ registrationNumber: 'AE-REG-1001', documentTypes: ['trade_license','beneficial_owner_id'] }).expect(201);
     expect(kyb.body.kybStatus).toBe('pending');
+    await request(app.getHttpServer()).post(`/admin/merchants/${merchantId}/kyb/decision`)
+      .set(h(bob)).send({ decision: 'approved' }).expect(403);
 
     await pool.query("insert into admin_roles(user_id,role) values($1,'compliance_admin')", [ownerId]);
     const decision = await request(app.getHttpServer()).post(`/admin/merchants/${merchantId}/kyb/decision`)
