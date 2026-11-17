@@ -2,6 +2,7 @@ import { Body, ConflictException, Controller, Get, HttpException, Inject, Inject
   NotFoundException, Param, Post, UseGuards } from '@nestjs/common';
 import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { randomBytes, randomUUID } from 'crypto';
+import { ForbiddenException } from '@nestjs/common';
 import { Pool } from 'pg';
 import { AuthGuard, AuthModule, AuthUser, CurrentUser } from '../auth/auth';
 import { PG_POOL, SYSTEM_PROVIDER_ACCOUNT } from '../db/db.module';
@@ -22,36 +23,48 @@ export class LinksService {
   async create(u: AuthUser, b: CreateLinkDto) {
     const code = randomBytes(6).toString('base64url');
     await this.pool.query(
-      'insert into payment_links (id, code, merchant_account, amount, description) values ($1,$2,$3,$4,$5)',
-      [randomUUID(), code, u.accountId, b.amount, b.description ?? null]);
+      'insert into payment_links (id, code, merchant_account, amount, description, currency) values ($1,$2,$3,$4,$5,$6)',
+      [randomUUID(), code, u.accountId, b.amount, b.description ?? null, 'EGP']);
     return { code, amount: b.amount, description: b.description ?? null, status: 'open' };
   }
 
   /** Public: what a payer sees. Never exposes the merchant's account id. */
   async get(code: string) {
-    const r = await this.pool.query('select code, amount, description, status from payment_links where code=$1', [code]);
+    const r = await this.pool.query('select l.code,l.amount,l.description,l.status,l.currency,m.display_name as merchant_name from payment_links l left join merchants m on m.id=l.merchant_id where l.code=$1', [code]);
     if (!r.rows[0]) throw new NotFoundException();
     return { ...r.rows[0], amount: Number(r.rows[0].amount) };
   }
 
   /** Public: payer without an app/account pays via the provider; funds land in the merchant's wallet. */
   async pay(code: string, method: PayMethod) {
+    const metadata = await this.pool.query(
+      `select l.id,l.currency,l.merchant_id,m.status as merchant_status,m.kyb_status
+       from payment_links l left join merchants m on m.id=l.merchant_id where l.code=$1`, [code]);
+    if (!metadata.rows[0]) throw new NotFoundException();
+    if (metadata.rows[0].currency !== 'EGP') {
+      throw new ConflictException('This currency is not yet enabled for checkout; provider orchestration is still in test-only rollout');
+    }
+    if (metadata.rows[0].merchant_id &&
+        (metadata.rows[0].merchant_status !== 'active' || metadata.rows[0].kyb_status !== 'approved')) {
+      throw new ForbiddenException('Merchant KYB approval is required before checkout');
+    }
     // Claim the link atomically so two payers can't both pay it.
     const claim = await this.pool.query(
-      `update payment_links set status='processing' where code=$1 and status='open' returning id, merchant_account, amount`, [code]);
+      `update payment_links set status='processing' where code=$1 and status='open' returning id, merchant_account, amount, currency`, [code]);
     let link = claim.rows[0];
     if (!link) {
       // A previous request may have charged the PSP but timed out before the
       // ledger post completed. Re-enter only the processing state with the same
       // stable provider/ledger references; the PSP adapter must deduplicate them.
       const existing = await this.pool.query(
-        `select id, merchant_account, amount, status from payment_links where code=$1`, [code]);
+        `select id, merchant_account, amount, currency, status from payment_links where code=$1`, [code]);
       if (!existing.rows[0]) throw new NotFoundException();
       if (existing.rows[0].status !== 'processing') {
         throw new ConflictException(`Link is ${existing.rows[0].status}`);
       }
       link = existing.rows[0];
     }
+    if (link.currency !== 'EGP') throw new ConflictException('Checkout currency is not enabled');
     const amount = Number(link.amount);
     const ch = await this.provider.charge({ amount, method, reference: `link:${link.id}` });
     if (!ch.ok) {
