@@ -187,7 +187,108 @@ alter table payment_intents add constraint payment_intents_currency_code_check
   check (currency in ('AED','EGP','SAR','GBP','USD'));
 create index if not exists accounts_owner_currency_idx on accounts(owner_id, currency);
 `,
-}] as const;
+}}, {
+  version: 7,
+  name: 'rewards_points_ledger_and_campaign_foundation',
+  sql: `
+create table reward_accounts (
+  id text primary key,
+  owner_id text references users(id) on delete cascade,
+  kind text not null check (kind in ('customer','issuance','redemption','expiry')),
+  balance_points bigint not null default 0,
+  lifetime_earned_points bigint not null default 0,
+  tier text not null default 'starter' check (tier in ('starter','bronze','silver','gold')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (kind <> 'customer' or balance_points >= 0)
+);
+create unique index reward_customer_account_owner_unique
+  on reward_accounts(owner_id) where owner_id is not null and kind='customer';
+create unique index reward_system_account_kind_unique
+  on reward_accounts(kind) where owner_id is null;
+
+create table reward_transactions (
+  id text primary key,
+  idempotency_key text not null unique,
+  request_fingerprint text not null,
+  owner_id text not null references users(id) on delete restrict,
+  kind text not null check (kind in ('earn','redeem','expire','reverse','adjust')),
+  points bigint not null check (points > 0),
+  reference text,
+  campaign_id text,
+  expires_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index reward_transactions_owner_created_idx
+  on reward_transactions(owner_id, created_at desc);
+
+create table reward_entries (
+  id text primary key,
+  transaction_id text not null references reward_transactions(id) on delete restrict,
+  account_id text not null references reward_accounts(id) on delete restrict,
+  points_delta bigint not null check (points_delta <> 0),
+  created_at timestamptz not null default now(),
+  unique(transaction_id, account_id)
+);
+
+create table reward_lots (
+  id text primary key,
+  earn_transaction_id text not null unique references reward_transactions(id) on delete restrict,
+  account_id text not null references reward_accounts(id) on delete restrict,
+  points_issued bigint not null check (points_issued > 0),
+  points_remaining bigint not null check (points_remaining >= 0 and points_remaining <= points_issued),
+  expires_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index reward_lots_available_idx
+  on reward_lots(account_id, expires_at, created_at) where points_remaining > 0;
+
+create table reward_invite_codes (
+  owner_id text primary key references users(id) on delete cascade,
+  code text not null unique,
+  created_at timestamptz not null default now()
+);
+create table reward_referrals (
+  id text primary key,
+  code text not null references reward_invite_codes(code) on delete restrict,
+  inviter_user_id text not null references users(id) on delete restrict,
+  invitee_user_id text not null unique references users(id) on delete restrict,
+  status text not null default 'pending' check (status in ('pending','qualified','rewarded','void')),
+  created_at timestamptz not null default now(),
+  qualified_at timestamptz,
+  rewarded_at timestamptz
+);
+create index reward_referrals_inviter_idx on reward_referrals(inviter_user_id, created_at desc);
+
+create table reward_campaigns (
+  id text primary key,
+  owner_id text not null references users(id) on delete restrict,
+  merchant_id text,
+  name text not null,
+  funding_source text not null check (funding_source in ('fawran','merchant')),
+  currency text not null check (currency in ('AED','EGP','SAR','GBP','USD')),
+  budget_minor bigint not null check (budget_minor > 0),
+  spent_minor bigint not null default 0 check (spent_minor >= 0 and spent_minor <= budget_minor),
+  points_per_minor integer not null check (points_per_minor > 0),
+  max_points_per_user bigint,
+  status text not null default 'draft' check (status in ('draft','pending_funding','active','paused','ended')),
+  starts_at timestamptz,
+  ends_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (ends_at is null or starts_at is null or ends_at > starts_at),
+  check (funding_source <> 'merchant' or merchant_id is not null)
+);
+create index reward_campaigns_status_dates_idx on reward_campaigns(status, starts_at, ends_at);
+
+create table reward_tiers (
+  tier text primary key check (tier in ('starter','bronze','silver','gold')),
+  lifetime_points_required bigint not null unique check (lifetime_points_required >= 0)
+);
+insert into reward_tiers(tier, lifetime_points_required) values
+  ('starter',0),('bronze',1000),('silver',10000),('gold',50000)
+on conflict (tier) do nothing;
+` ,] as const;
 
 /** Run as an explicit deployment step, never during API startup. */
 export async function runMigrations(pool: Pool): Promise<{ applied: number[]; current: number }> {
