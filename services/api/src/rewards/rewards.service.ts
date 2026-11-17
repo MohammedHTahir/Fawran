@@ -116,13 +116,13 @@ export class RewardsService {
     const client = await this.pool.connect();
     try {
       await client.query('begin');
-      const transactionId = randomUUID();
+      const proposedTransactionId = randomUUID();
       const inserted = await client.query(
         `insert into reward_transactions
           (id,idempotency_key,request_fingerprint,owner_id,kind,points,reference,campaign_id,expires_at)
          values($1,$2,$3,$4,'earn',$5,$6,$7,$8)
          on conflict(idempotency_key) do nothing returning id`,
-        [transactionId, input.idempotencyKey, fingerprint, input.userId, input.points,
+        [proposedTransactionId, input.idempotencyKey, fingerprint, input.userId, input.points,
           input.reference ?? null, input.campaignId ?? null, input.expiresAt ?? null],
       );
       if (!inserted.rows[0]) {
@@ -137,6 +137,7 @@ export class RewardsService {
         return { transactionId: String(existing.rows[0].id), replayed: true };
       }
 
+      const transactionId = String(inserted.rows[0].id);
       const customer = await this.customerAccount(client, input.userId);
       const issuance = await this.systemAccount(client, 'issuance');
       const lifetime = Number(customer.lifetime_earned_points) + input.points;
@@ -150,9 +151,12 @@ export class RewardsService {
         [issuance.id, input.points],
       );
       await client.query(
-        'insert into reward_entries(id,transaction_id,account_id,points_delta) values($1,$2,$3,$4),($5,$2,$6,$7)',
-        [randomUUID(), transactionId, customer.id, input.points,
-          randomUUID(), issuance.id, -input.points],
+        'insert into reward_entries(id,transaction_id,account_id,points_delta) values($1,$2,$3,$4)',
+        [randomUUID(), transactionId, customer.id, input.points],
+      );
+      await client.query(
+        'insert into reward_entries(id,transaction_id,account_id,points_delta) values($1,$2,$3,$4)',
+        [randomUUID(), transactionId, issuance.id, -input.points],
       );
       await client.query(
         'insert into reward_lots(id,earn_transaction_id,account_id,points_issued,points_remaining,expires_at) values($1,$2,$3,$4,$4,$5)',
@@ -180,7 +184,7 @@ export class RewardsService {
       const inserted = await client.query(
         `insert into reward_transactions(id,idempotency_key,request_fingerprint,owner_id,kind,points,reference)
          values($1,$2,$3,$4,'redeem',$5,$6) on conflict(idempotency_key) do nothing returning id`,
-        [transactionId, idempotencyKey, fingerprint, userId, points, reference],
+        [proposedTransactionId, idempotencyKey, fingerprint, userId, points, reference],
       );
       if (!inserted.rows[0]) {
         const existing = await client.query(
@@ -193,6 +197,7 @@ export class RewardsService {
         return { transactionId: String(existing.rows[0].id), replayed: true };
       }
 
+      const transactionId = String(inserted.rows[0].id);
       const customer = await this.customerAccount(client, userId);
       const redemption = await this.systemAccount(client, 'redemption');
       const lots = await client.query(
@@ -206,7 +211,7 @@ export class RewardsService {
         if (remaining <= 0) break;
         const available = Number(lot.points_remaining);
         const used = Math.min(available, remaining);
-        await client.query('update reward_lots set points_remaining=points_remaining-$2 where id=$1', [lot.id, used]);
+        await client.query('update reward_lots set points_remaining=$2 where id=$1', [lot.id, available - used]);
         remaining -= used;
       }
       if (remaining > 0 || Number(customer.balance_points) < points) {
@@ -221,9 +226,12 @@ export class RewardsService {
         [redemption.id, points],
       );
       await client.query(
-        'insert into reward_entries(id,transaction_id,account_id,points_delta) values($1,$2,$3,$4),($5,$2,$6,$7)',
-        [randomUUID(), transactionId, customer.id, -points,
-          randomUUID(), redemption.id, points],
+        'insert into reward_entries(id,transaction_id,account_id,points_delta) values($1,$2,$3,$4)',
+        [randomUUID(), transactionId, customer.id, -points],
+      );
+      await client.query(
+        'insert into reward_entries(id,transaction_id,account_id,points_delta) values($1,$2,$3,$4)',
+        [randomUUID(), transactionId, redemption.id, points],
       );
       await client.query('commit');
       return { transactionId, replayed: false };
@@ -258,15 +266,16 @@ export class RewardsService {
         );
         const points = Number(currentLot.rows[0]?.points_remaining ?? 0);
         if (points <= 0) continue;
-        const transactionId = randomUUID();
+        const proposedTransactionId = randomUUID();
         const idempotencyKey = `reward-expiry:${lot.id}`;
         const fingerprint = this.fingerprint({ lotId: lot.id, points });
         const inserted = await client.query(
           `insert into reward_transactions(id,idempotency_key,request_fingerprint,owner_id,kind,points,reference)
            values($1,$2,$3,$4,'expire',$5,$6) on conflict(idempotency_key) do nothing returning id`,
-          [transactionId, idempotencyKey, fingerprint, lot.owner_id, points, String(lot.id)],
+          [proposedTransactionId, idempotencyKey, fingerprint, lot.owner_id, points, String(lot.id)],
         );
         if (!inserted.rows[0]) continue;
+        const transactionId = String(inserted.rows[0].id);
         await client.query('update reward_lots set points_remaining=0 where id=$1', [lot.id]);
         await client.query(
           'update reward_accounts set balance_points=balance_points-$2,updated_at=now() where id=$1',
@@ -277,9 +286,12 @@ export class RewardsService {
           [expiry.id, points],
         );
         await client.query(
-          'insert into reward_entries(id,transaction_id,account_id,points_delta) values($1,$2,$3,$4),($5,$2,$6,$7)',
-          [randomUUID(), transactionId, lot.account_id, -points,
-            randomUUID(), expiry.id, points],
+          'insert into reward_entries(id,transaction_id,account_id,points_delta) values($1,$2,$3,$4)',
+          [randomUUID(), transactionId, lot.account_id, -points],
+        );
+        await client.query(
+          'insert into reward_entries(id,transaction_id,account_id,points_delta) values($1,$2,$3,$4)',
+          [randomUUID(), transactionId, expiry.id, points],
         );
         pointsExpired += points;
         lotsExpired += 1;
