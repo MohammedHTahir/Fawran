@@ -25,6 +25,12 @@ describe('API flow', () => {
     await request(app.getHttpServer()).get('/wallet').expect(401);
   });
 
+  it('exposes a separate non-cash points balance and referral code', async () => {
+    const response = await request(app.getHttpServer()).get('/rewards').set(h(alice)).expect(200);
+    expect(response.body).toMatchObject({ unit: 'POINTS', pointsBalance: 0, tier: 'starter' });
+    expect(response.body.referralCode).toMatch(/^[A-F0-9]{16}$/);
+  });
+
   it('creates and selects separate currency wallets without changing the default EGP wallet', async () => {
     const s = app.getHttpServer();
     const created = await request(s).post('/wallets').set(h(alice)).send({ currency: 'AED' }).expect(201);
