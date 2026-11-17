@@ -29,7 +29,7 @@ export class LedgerService implements LedgerPort {
   }
 
   async transfer(t: TransferInput): Promise<{ txnId: string; replayed: boolean }> {
-    if (!Number.isSafeInteger(t.amount) || t.amount <= 0) throw new BadRequestException('Amount must be a positive integer (piasters)');
+    if (!Number.isSafeInteger(t.amount) || t.amount <= 0) throw new BadRequestException('Amount must be a positive integer currency minor units');
     if (t.from === t.to) throw new BadRequestException('Cannot transfer to the same account');
     const accountCurrencies = await this.pool.query(
       'select id, currency from accounts where id=$1 or id=$2', [t.from, t.to]);
