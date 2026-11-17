@@ -1,0 +1,343 @@
+import {
+  ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsOptional, IsString, Length, Matches, Max, Min,
+} from 'class-validator';
+import {
+  BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject,
+  Injectable, Module, NotFoundException, Param, Post, UseGuards,
+} from '@nestjs/common';
+import { randomBytes, randomUUID } from 'crypto';
+import { Pool } from 'pg';
+import { AuthGuard, AuthModule, AuthUser, CurrentUser } from '../auth/auth';
+import { PG_POOL } from '../db/db.module';
+import { LEDGER_PORT, LedgerPort } from '../ledger/ledger.port';
+import { getMarketByCurrency, getMarketProfile } from '../markets/market-registry';
+import { AdminGuard } from '../admin/admin.guard';
+
+class CreateMerchantDto {
+  @IsString() @Length(2, 120) legalName!: string;
+  @IsString() @Length(2, 80) displayName!: string;
+  @IsString() @Matches(/^[A-Z]{2}$/) countryCode!: string;
+  @IsString() @Matches(/^[A-Z]{3}$/) currency!: string;
+}
+class CreateMerchantAccountDto {
+  @IsString() @Matches(/^[A-Z]{3}$/) currency!: string;
+}
+class SubmitKybDto {
+  @IsString() @Length(2, 100) registrationNumber!: string;
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(8)
+  @IsIn(['trade_license','beneficial_owner_id','proof_of_address','bank_statement','tax_certificate'], { each: true })
+  documentTypes!: string[];
+}
+class CreateMerchantLinkDto {
+  @IsInt() @Min(1) @Max(50_000_000) amount!: number;
+  @IsString() @Matches(/^[A-Z]{3}$/) currency!: string;
+  @IsOptional() @IsString() @Length(0, 140) description?: string;
+}
+class CreateOfferDto {
+  @IsString() @Length(2, 80) name!: string;
+  @IsOptional() @IsString() @Length(0, 500) description?: string;
+}
+class CreateCampaignDto {
+  @IsString() @Length(2, 100) name!: string;
+  @IsString() @Matches(/^[A-Z]{3}$/) currency!: string;
+  @IsInt() @Min(1) @Max(100_000_000_000) budgetMinor!: number;
+  @IsInt() @Min(1) @Max(100_000) pointsPerMinor!: number;
+  @IsOptional() @IsInt() @Min(1) maxPointsPerUser?: number;
+}
+class KybDecisionDto {
+  @IsString() @IsIn(['approved','rejected','needs_info']) decision!: 'approved'|'rejected'|'needs_info';
+  @IsOptional() @IsString() @Length(0, 500) reason?: string;
+}
+
+@Injectable()
+export class MerchantService {
+  constructor(
+    @Inject(PG_POOL) private readonly pool: Pool,
+    @Inject(LEDGER_PORT) private readonly ledger: LedgerPort,
+  ) {}
+
+  private async membership(userId: string, merchantId: string, roles?: string[]) {
+    const result = await this.pool.query(
+      'select m.*, mm.role from merchants m join merchant_members mm on mm.merchant_id=m.id where m.id=$1 and mm.user_id=$2',
+      [merchantId, userId],
+    );
+    if (!result.rows[0]) throw new NotFoundException('Merchant not found');
+    if (roles && !roles.includes(result.rows[0].role)) throw new ForbiddenException('Insufficient merchant permissions');
+    return result.rows[0];
+  }
+
+  async create(user: AuthUser, body: CreateMerchantDto) {
+    const countryCode = body.countryCode.trim().toUpperCase();
+    const currency = body.currency.trim().toUpperCase();
+    const market = getMarketProfile(countryCode);
+    if (!market || market.currency !== currency) {
+      throw new BadRequestException('Merchant country and settlement currency must match a market in the catalog');
+    }
+    const merchantId = randomUUID();
+    const ledgerAccountId = await this.ledger.createAccount(null, 'merchant', currency);
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query(
+        `insert into merchants(id,owner_user_id,legal_name,display_name,country_code,currency)
+         values($1,$2,$3,$4,$5,$6)`,
+        [merchantId, user.id, body.legalName.trim(), body.displayName.trim(), countryCode, currency],
+      );
+      await client.query(
+        "insert into merchant_members(merchant_id,user_id,role) values($1,$2,'owner')",
+        [merchantId, user.id],
+      );
+      await client.query(
+        "insert into merchant_accounts(id,merchant_id,currency,ledger_account_id,settlement_status) values($1,$2,$3,$4,'blocked')",
+        [randomUUID(), merchantId, currency, ledgerAccountId],
+      );
+      await client.query('commit');
+      return {
+        merchantId, legalName: body.legalName.trim(), displayName: body.displayName.trim(),
+        countryCode, currency, status: 'pending', kybStatus: 'not_started',
+        settlementStatus: 'blocked', paymentsEnabled: false,
+      };
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listMine(userId: string) {
+    const result = await this.pool.query(
+      `select m.id,m.display_name,m.country_code,m.currency,m.kyb_status,m.status,mm.role
+       from merchants m join merchant_members mm on mm.merchant_id=m.id
+       where mm.user_id=$1 order by m.created_at desc`,
+      [userId],
+    );
+    return result.rows;
+  }
+
+  async get(userId: string, merchantId: string) {
+    const merchant = await this.membership(userId, merchantId);
+    const accounts = await this.pool.query(
+      'select id,currency,ledger_account_id,settlement_status from merchant_accounts where merchant_id=$1 order by currency',
+      [merchantId],
+    );
+    const wallets = await Promise.all(accounts.rows.map(async (row: any) => ({
+      currency: row.currency, balance: await this.ledger.balance(row.ledger_account_id),
+      unit: 'minor', settlementStatus: row.settlement_status,
+    })));
+    return {
+      merchantId: merchant.id, legalName: merchant.legal_name, displayName: merchant.display_name,
+      countryCode: merchant.country_code, currency: merchant.currency,
+      kybStatus: merchant.kyb_status, status: merchant.status, role: merchant.role,
+      paymentsEnabled: false, accounts: wallets,
+    };
+  }
+
+  async createAccount(userId: string, merchantId: string, body: CreateMerchantAccountDto) {
+    const merchant = await this.membership(userId, merchantId, ['owner','admin']);
+    const currency = body.currency.trim().toUpperCase();
+    if (!getMarketByCurrency(currency)) throw new BadRequestException('Unsupported merchant account currency');
+    const existing = await this.pool.query(
+      'select id,currency,ledger_account_id,settlement_status from merchant_accounts where merchant_id=$1 and currency=$2',
+      [merchantId, currency],
+    );
+    if (existing.rows[0]) return { currency, created: false, settlementStatus: existing.rows[0].settlement_status };
+    const ledgerAccountId = await this.ledger.createAccount(null, 'merchant', currency);
+    try {
+      await this.pool.query(
+        "insert into merchant_accounts(id,merchant_id,currency,ledger_account_id,settlement_status) values($1,$2,$3,$4,'blocked')",
+        [randomUUID(), merchantId, currency, ledgerAccountId],
+      );
+      return { currency, created: true, settlementStatus: 'blocked' };
+    } catch (error: any) {
+      if (error?.code !== '23505') throw error;
+      return { currency, created: false, settlementStatus: 'blocked' };
+    }
+  }
+
+  async submitKyb(userId: string, merchantId: string, body: SubmitKybDto) {
+    const merchant = await this.membership(userId, merchantId, ['owner','admin']);
+    if (merchant.kyb_status === 'approved') throw new ConflictException('Merchant KYB is already approved');
+    if (merchant.kyb_status === 'rejected') throw new ConflictException('Rejected KYB requires a new compliance review');
+    const caseId = randomUUID();
+    await this.pool.query(
+      `insert into merchant_kyb_cases(id,merchant_id,status,submitted_by,document_types,registration_number)
+       values($1,$2,'submitted',$3,$4::jsonb,$5)`,
+      [caseId, merchantId, userId, JSON.stringify(body.documentTypes), body.registrationNumber.trim()],
+    );
+    await this.pool.query(
+      "update merchants set kyb_status='pending',status='pending',updated_at=now() where id=$1",
+      [merchantId],
+    );
+    return { caseId, status: 'submitted', kybStatus: 'pending', paymentsEnabled: false };
+  }
+
+  private async requireApprovedMerchant(userId: string, merchantId: string, roles = ['owner','admin','manager']) {
+    const merchant = await this.membership(userId, merchantId, roles);
+    if (merchant.kyb_status !== 'approved' || merchant.status !== 'active') {
+      throw new ForbiddenException('Merchant KYB approval is required before publishing commerce features');
+    }
+    return merchant;
+  }
+
+  async createPaymentLink(userId: string, merchantId: string, body: CreateMerchantLinkDto) {
+    await this.requireApprovedMerchant(userId, merchantId);
+    const currency = body.currency.trim().toUpperCase();
+    if (!getMarketByCurrency(currency)) throw new BadRequestException('Unsupported payment link currency');
+    const account = await this.pool.query(
+      'select ledger_account_id from merchant_accounts where merchant_id=$1 and currency=$2',
+      [merchantId, currency],
+    );
+    if (!account.rows[0]) throw new BadRequestException('Create a merchant account in this currency first');
+    const id = randomUUID();
+    const code = randomBytes(9).toString('base64url');
+    await this.pool.query(
+      `insert into payment_links(id,code,merchant_account,amount,description,currency,merchant_id)
+       values($1,$2,$3,$4,$5,$6,$7)`,
+      [id, code, account.rows[0].ledger_account_id, body.amount, body.description ?? null, currency, merchantId],
+    );
+    const checkoutPath = `/links/${code}`;
+    return { id, code, amount: body.amount, currency, description: body.description ?? null,
+      status: 'open', checkoutPath, qrPayload: checkoutPath, settlementStatus: 'blocked' };
+  }
+
+  async createOffer(userId: string, merchantId: string, body: CreateOfferDto) {
+    await this.requireApprovedMerchant(userId, merchantId);
+    const id = randomUUID();
+    await this.pool.query(
+      "insert into merchant_offers(id,merchant_id,name,description,status) values($1,$2,$3,$4,'draft')",
+      [id, merchantId, body.name.trim(), body.description?.trim() ?? null],
+    );
+    return { offerId: id, status: 'draft', published: false };
+  }
+
+  async listOffers(userId: string, merchantId: string) {
+    await this.membership(userId, merchantId);
+    const result = await this.pool.query(
+      'select id,name,description,status,starts_at,ends_at,created_at from merchant_offers where merchant_id=$1 order by created_at desc',
+      [merchantId],
+    );
+    return result.rows;
+  }
+
+  async createCampaign(userId: string, merchantId: string, body: CreateCampaignDto) {
+    const merchant = await this.requireApprovedMerchant(userId, merchantId);
+    const currency = body.currency.trim().toUpperCase();
+    if (currency !== merchant.currency) throw new BadRequestException('Campaign currency must match the merchant settlement currency');
+    const budget = body.budgetMinor;
+    const id = randomUUID();
+    await this.pool.query(
+      `insert into reward_campaigns(id,owner_id,merchant_id,name,funding_source,currency,budget_minor,points_per_minor,max_points_per_user,status)
+       values($1,$2,$3,$4,'merchant',$5,$6,$7,$8,'pending_funding')`,
+      [id, userId, merchantId, body.name.trim(), currency, budget, body.pointsPerMinor, body.maxPointsPerUser ?? null],
+    );
+    return { campaignId: id, status: 'pending_funding', funded: false, pointsIssuanceEnabled: false };
+  }
+
+  async listCampaigns(userId: string, merchantId: string) {
+    await this.membership(userId, merchantId);
+    const result = await this.pool.query(
+      'select id,name,currency,budget_minor,spent_minor,points_per_minor,status,starts_at,ends_at from reward_campaigns where merchant_id=$1 order by created_at desc',
+      [merchantId],
+    );
+    return result.rows.map((row: any) => ({ ...row, budget_minor: Number(row.budget_minor), spent_minor: Number(row.spent_minor) }));
+  }
+
+  async pendingKyb() {
+    const result = await this.pool.query(
+      `select c.id as case_id,c.status as case_status,c.document_types,c.submitted_at,
+       m.id as merchant_id,m.legal_name,m.display_name,m.country_code,m.currency
+       from merchant_kyb_cases c join merchants m on m.id=c.merchant_id
+       where c.status in ('submitted','under_review') order by c.submitted_at asc`,
+    );
+    return result.rows;
+  }
+
+  async decideKyb(adminUserId: string, merchantId: string, body: KybDecisionDto) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      const merchant = await client.query('select id,kyb_status,status from merchants where id=$1 for update', [merchantId]);
+      if (!merchant.rows[0]) throw new NotFoundException('Merchant not found');
+      const kybCase = await client.query(
+        "select id from merchant_kyb_cases where merchant_id=$1 and status in ('submitted','under_review','needs_info') order by submitted_at desc limit 1 for update",
+        [merchantId],
+      );
+      if (!kybCase.rows[0]) throw new ConflictException('No open KYB case exists for this merchant');
+      const nextStatus = body.decision;
+      const merchantStatus = nextStatus === 'approved' ? 'active' : nextStatus === 'rejected' ? 'suspended' : 'pending';
+      await client.query(
+        'update merchant_kyb_cases set status=$2,reviewed_by=$3,decision_reason=$4,reviewed_at=now() where id=$1',
+        [kybCase.rows[0].id, nextStatus, adminUserId, body.reason ?? null],
+      );
+      await client.query(
+        'update merchants set kyb_status=$2,status=$3,updated_at=now() where id=$1',
+        [merchantId, nextStatus, merchantStatus],
+      );
+      await client.query(
+        'insert into admin_audit_events(id,actor_user_id,action,entity_type,entity_id,details) values($1,$2,$3,$4,$5,$6::jsonb)',
+        [randomUUID(), adminUserId, 'merchant_kyb_decision', 'merchant', merchantId,
+          JSON.stringify({ decision: nextStatus, reason: body.reason ?? null })],
+      );
+      await client.query('commit');
+      return { merchantId, kybStatus: nextStatus, status: merchantStatus, settlementStatus: 'blocked', paymentsEnabled: false };
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+}
+
+@Controller('merchants')
+@UseGuards(AuthGuard)
+class MerchantController {
+  constructor(private readonly merchants: MerchantService) {}
+
+  @Post() create(@CurrentUser() user: AuthUser, @Body() body: CreateMerchantDto) {
+    return this.merchants.create(user, body);
+  }
+  @Get('me') listMine(@CurrentUser() user: AuthUser) { return this.merchants.listMine(user.id); }
+  @Get(':id') get(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.merchants.get(user.id, id); }
+  @Post(':id/accounts') createAccount(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: CreateMerchantAccountDto) {
+    return this.merchants.createAccount(user.id, id, body);
+  }
+  @Post(':id/kyb/submit') submitKyb(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: SubmitKybDto) {
+    return this.merchants.submitKyb(user.id, id, body);
+  }
+  @Post(':id/payment-links') createPaymentLink(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: CreateMerchantLinkDto) {
+    return this.merchants.createPaymentLink(user.id, id, body);
+  }
+  @Post(':id/offers') createOffer(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: CreateOfferDto) {
+    return this.merchants.createOffer(user.id, id, body);
+  }
+  @Get(':id/offers') listOffers(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.merchants.listOffers(user.id, id);
+  }
+  @Post(':id/campaigns') createCampaign(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: CreateCampaignDto) {
+    return this.merchants.createCampaign(user.id, id, body);
+  }
+  @Get(':id/campaigns') listCampaigns(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.merchants.listCampaigns(user.id, id);
+  }
+}
+
+@Controller('admin/merchants')
+@UseGuards(AuthGuard, AdminGuard)
+class MerchantAdminController {
+  constructor(private readonly merchants: MerchantService) {}
+
+  @Get('kyb') pendingKyb() { return this.merchants.pendingKyb(); }
+  @Post(':id/kyb/decision') decideKyb(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: KybDecisionDto) {
+    return this.merchants.decideKyb(user.id, id, body);
+  }
+}
+
+@Module({
+  imports: [AuthModule],
+  controllers: [MerchantController, MerchantAdminController],
+  providers: [MerchantService, AdminGuard],
+  exports: [MerchantService],
+})
+export class MerchantModule {}
