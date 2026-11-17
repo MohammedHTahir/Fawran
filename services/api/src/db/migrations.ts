@@ -288,7 +288,8 @@ create table reward_tiers (
 insert into reward_tiers(tier, lifetime_points_required) values
   ('starter',0),('bronze',1000),('silver',10000),('gold',50000)
 on conflict (tier) do nothing;
-` ,] as const;
+`,
+}] as const;
 
 /** Run as an explicit deployment step, never during API startup. */
 export async function runMigrations(pool: Pool): Promise<{ applied: number[]; current: number }> {
