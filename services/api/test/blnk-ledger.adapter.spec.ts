@@ -10,10 +10,13 @@ describe('BlnkLedgerAdapter', () => {
   const originalEnv = {
     BLNK_BASE_URL: process.env.BLNK_BASE_URL,
     BLNK_LEDGER_ID: process.env.BLNK_LEDGER_ID,
-    BLNK_SYSTEM_BALANCE_ID: process.env.BLNK_SYSTEM_BALANCE_ID,\n    BLNK_LEDGER_ID_AED: process.env.BLNK_LEDGER_ID_AED,\n    BLNK_SYSTEM_BALANCE_ID_AED: process.env.BLNK_SYSTEM_BALANCE_ID_AED,
+    BLNK_SYSTEM_BALANCE_ID: process.env.BLNK_SYSTEM_BALANCE_ID,
+    BLNK_LEDGER_ID_AED: process.env.BLNK_LEDGER_ID_AED,
+    BLNK_SYSTEM_BALANCE_ID_AED: process.env.BLNK_SYSTEM_BALANCE_ID_AED,
   };
   const remoteBalances = new Map<string, number>();
-  const balanceIds = new Map<string, string>();\n  const balanceMeta = new Map<string, {ledger_id:string;currency:string}>();
+  const balanceIds = new Map<string, string>();
+  const balanceMeta = new Map<string, {ledger_id:string;currency:string}>();
   const txns = new Map<string, any>();
   let nextBalance = 0;
 
@@ -24,10 +27,15 @@ describe('BlnkLedgerAdapter', () => {
   beforeAll(async () => {
     process.env.BLNK_BASE_URL = 'http://blnk.test';
     process.env.BLNK_LEDGER_ID = 'ldg_test';
-    process.env.BLNK_SYSTEM_BALANCE_ID = 'bln_system';\n    process.env.BLNK_LEDGER_ID_AED = 'ldg_aed';\n    process.env.BLNK_SYSTEM_BALANCE_ID_AED = 'bln_system_aed';
+    process.env.BLNK_SYSTEM_BALANCE_ID = 'bln_system';
+    process.env.BLNK_LEDGER_ID_AED = 'ldg_aed';
+    process.env.BLNK_SYSTEM_BALANCE_ID_AED = 'bln_system_aed';
     ({ app, pool } = await makeApp());
     adapter = new BlnkLedgerAdapter(pool);
-    remoteBalances.set('bln_system', 1_000_000);\n    remoteMeta.set('bln_system', { ledger_id:'ldg_test', currency:'EGP' });\n    remoteBalances.set('bln_system_aed', 500_000);\n    remoteMeta.set('bln_system_aed', { ledger_id:'ldg_aed', currency:'AED' });
+    remoteBalances.set('bln_system', 1_000_000);
+    remoteMeta.set('bln_system', { ledger_id:'ldg_test', currency:'EGP' });
+    remoteBalances.set('bln_system_aed', 500_000);
+    remoteMeta.set('bln_system_aed', { ledger_id:'ldg_aed', currency:'AED' });
     global.fetch = jest.fn(async (input: any, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? 'GET';
@@ -36,13 +44,15 @@ describe('BlnkLedgerAdapter', () => {
         const id = `bln_user_${++nextBalance}`;
         const payload = JSON.parse(String(init?.body));
         balanceIds.set(payload.meta_data.fawran_account_id, id);
-        remoteBalances.set(id, 0);\n        balanceMeta.set(id, { ledger_id:payload.ledger_id, currency:payload.currency });
+        remoteBalances.set(id, 0);
+        balanceMeta.set(id, { ledger_id:payload.ledger_id, currency:payload.currency });
         return json({ balance_id: id }, 201);
       }
       if (url.includes('/balances/') && method === 'GET') {
         const id = decodeURIComponent(url.split('/').pop()!);
         if (!remoteBalances.has(id)) return json({ error: 'not found' }, 404);
-        const meta = balanceMeta.get(id) ?? remoteMeta.get(id) ?? { ledger_id:'ldg_test', currency:'EGP' };\n        return json({ balance: remoteBalances.get(id), ...meta });
+        const meta = balanceMeta.get(id) ?? remoteMeta.get(id) ?? { ledger_id:'ldg_test', currency:'EGP' };
+        return json({ balance: remoteBalances.get(id), ...meta });
       }
       if (url.includes('/transactions/reference/')) {
         const ref = decodeURIComponent(url.split('/').pop()!);
