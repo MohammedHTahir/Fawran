@@ -15,9 +15,10 @@ export class InsufficientFunds extends HttpException {
 export class LedgerService implements LedgerPort {
   constructor(@Inject(PG_POOL) private pool: Pool) {}
 
-  async createAccount(ownerId: string | null, kind = 'user'): Promise<string> {
+  async createAccount(ownerId: string | null, kind = 'user', currency = 'EGP'): Promise<string> {
+    if (!/^[A-Z]{3}$/.test(currency)) throw new BadRequestException('Currency must be an uppercase ISO 4217 code');
     const id = randomUUID();
-    await this.pool.query('insert into accounts (id, owner_id, kind) values ($1,$2,$3)', [id, ownerId, kind]);
+    await this.pool.query('insert into accounts (id, owner_id, kind, currency) values ($1,$2,$3,$4)', [id, ownerId, kind, currency]);
     return id;
   }
 
@@ -28,10 +29,22 @@ export class LedgerService implements LedgerPort {
   }
 
   async transfer(t: TransferInput): Promise<{ txnId: string; replayed: boolean }> {
-    if (!Number.isSafeInteger(t.amount) || t.amount <= 0) throw new BadRequestException('Amount must be a positive integer (piasters)');
+    if (!Number.isSafeInteger(t.amount) || t.amount <= 0) throw new BadRequestException('Amount must be a positive integer currency minor units');
     if (t.from === t.to) throw new BadRequestException('Cannot transfer to the same account');
+    const accountCurrencies = await this.pool.query(
+      'select id, currency from accounts where id=$1 or id=$2', [t.from, t.to]);
+    if (accountCurrencies.rows.length !== 2) throw new BadRequestException('Unknown account');
+    const fromCurrency = accountCurrencies.rows.find((r: any) => r.id === t.from)?.currency;
+    const toCurrency = accountCurrencies.rows.find((r: any) => r.id === t.to)?.currency;
+    if (!fromCurrency || fromCurrency !== toCurrency) {
+      throw new BadRequestException('Transfers must use accounts with the same currency');
+    }
+    if (t.currency && t.currency !== fromCurrency) {
+      throw new BadRequestException('Transfer currency does not match account currency');
+    }
+    const currency = fromCurrency as string;
     const fingerprint = createHash('sha256').update(JSON.stringify({
-      from: t.from, to: t.to, amount: t.amount, kind: t.kind, memo: t.memo ?? null,
+      from: t.from, to: t.to, amount: t.amount, currency, kind: t.kind, memo: t.memo ?? null,
     })).digest('hex');
     const existing = await this.findByKey(t.idemKey);
     if (existing) {
@@ -44,15 +57,18 @@ export class LedgerService implements LedgerPort {
       await c.query('begin');
       // Lock both accounts in a stable order to avoid deadlocks.
       const locked = await c.query(
-        'select id, kind, balance from accounts where id = $1 or id = $2 order by id for update', [t.from, t.to]);
+        'select id, kind, balance, currency from accounts where id = $1 or id = $2 order by id for update', [t.from, t.to]);
       if (locked.rows.length !== 2) throw new BadRequestException('Unknown account');
+      if (locked.rows.some((r: any) => r.currency !== currency)) {
+        throw new BadRequestException('Account currency changed during transfer; retry the request');
+      }
       const from = locked.rows.find((r: any) => r.id === t.from);
       if (from.kind !== 'system' && Number(from.balance) < t.amount) throw new InsufficientFunds();
 
       const txnId = randomUUID();
       await c.query(
-        'insert into ledger_transactions (id, idem_key, kind, memo, request_fingerprint) values ($1,$2,$3,$4,$5)',
-        [txnId, t.idemKey, t.kind, t.memo ?? null, fingerprint]);
+        'insert into ledger_transactions (id, idem_key, kind, memo, request_fingerprint, currency) values ($1,$2,$3,$4,$5,$6)',
+        [txnId, t.idemKey, t.kind, t.memo ?? null, fingerprint, currency]);
       await c.query('insert into ledger_entries (id, txn_id, account_id, amount) values ($1,$2,$3,$4)', [randomUUID(), txnId, t.from, -t.amount]);
       await c.query('insert into ledger_entries (id, txn_id, account_id, amount) values ($1,$2,$3,$4)', [randomUUID(), txnId, t.to, t.amount]);
       await c.query('update accounts set balance = balance + $2 where id = $1', [t.from, -t.amount]);
@@ -92,10 +108,10 @@ export class LedgerService implements LedgerPort {
 
   async history(accountId: string, limit = 50) {
     const r = await this.pool.query(
-      `select t.id, t.kind, t.memo, t.created_at, e.amount
+      `select t.id, t.kind, t.memo, t.created_at, t.currency, e.amount
          from ledger_entries e join ledger_transactions t on t.id = e.txn_id
         where e.account_id = $1 order by t.created_at desc limit $2`, [accountId, limit]);
-    return r.rows.map((x: any) => ({ id: x.id, kind: x.kind, memo: x.memo, createdAt: x.created_at, amount: Number(x.amount) }));
+    return r.rows.map((x: any) => ({ id: x.id, kind: x.kind, memo: x.memo, createdAt: x.created_at, amount: Number(x.amount), currency: x.currency }));
   }
 
   /** Reconciliation check: cached balances match entries, and every transaction sums to zero. */

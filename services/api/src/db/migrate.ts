@@ -7,7 +7,24 @@ async function main() {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   try {
     const result = await runMigrations(pool);
-    process.stdout.write(JSON.stringify(result) + '\n');
+    await pool.query(`
+      create or replace function prevent_account_currency_change()
+      returns trigger language plpgsql as $function$
+      begin
+        if new.currency is distinct from old.currency then
+          raise exception 'Account currency is immutable' using errcode = '23514';
+        end if;
+        return new;
+      end;
+      $function$;
+    `);
+    await pool.query('drop trigger if exists accounts_currency_immutable on accounts');
+    await pool.query(`
+      create trigger accounts_currency_immutable
+      before update of currency on accounts
+      for each row execute function prevent_account_currency_change()
+    `);
+    process.stdout.write(JSON.stringify({ ...result, currencyGuard: 'installed' }) + '\n');
   } finally {
     await pool.end();
   }

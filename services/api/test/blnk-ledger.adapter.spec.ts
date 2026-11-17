@@ -11,9 +11,13 @@ describe('BlnkLedgerAdapter', () => {
     BLNK_BASE_URL: process.env.BLNK_BASE_URL,
     BLNK_LEDGER_ID: process.env.BLNK_LEDGER_ID,
     BLNK_SYSTEM_BALANCE_ID: process.env.BLNK_SYSTEM_BALANCE_ID,
+    BLNK_LEDGER_ID_AED: process.env.BLNK_LEDGER_ID_AED,
+    BLNK_SYSTEM_BALANCE_ID_AED: process.env.BLNK_SYSTEM_BALANCE_ID_AED,
   };
   const remoteBalances = new Map<string, number>();
   const balanceIds = new Map<string, string>();
+  const balanceMeta = new Map<string, {ledger_id:string;currency:string}>();
+  const remoteMeta = new Map<string, {ledger_id:string;currency:string}>();
   const txns = new Map<string, any>();
   let nextBalance = 0;
 
@@ -25,9 +29,14 @@ describe('BlnkLedgerAdapter', () => {
     process.env.BLNK_BASE_URL = 'http://blnk.test';
     process.env.BLNK_LEDGER_ID = 'ldg_test';
     process.env.BLNK_SYSTEM_BALANCE_ID = 'bln_system';
+    process.env.BLNK_LEDGER_ID_AED = 'ldg_aed';
+    process.env.BLNK_SYSTEM_BALANCE_ID_AED = 'bln_system_aed';
     ({ app, pool } = await makeApp());
     adapter = new BlnkLedgerAdapter(pool);
     remoteBalances.set('bln_system', 1_000_000);
+    remoteMeta.set('bln_system', { ledger_id:'ldg_test', currency:'EGP' });
+    remoteBalances.set('bln_system_aed', 500_000);
+    remoteMeta.set('bln_system_aed', { ledger_id:'ldg_aed', currency:'AED' });
     global.fetch = jest.fn(async (input: any, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? 'GET';
@@ -37,12 +46,14 @@ describe('BlnkLedgerAdapter', () => {
         const payload = JSON.parse(String(init?.body));
         balanceIds.set(payload.meta_data.fawran_account_id, id);
         remoteBalances.set(id, 0);
+        balanceMeta.set(id, { ledger_id:payload.ledger_id, currency:payload.currency });
         return json({ balance_id: id }, 201);
       }
       if (url.includes('/balances/') && method === 'GET') {
         const id = decodeURIComponent(url.split('/').pop()!);
         if (!remoteBalances.has(id)) return json({ error: 'not found' }, 404);
-        return json({ balance: remoteBalances.get(id), ledger_id: 'ldg_test', currency: 'EGP' });
+        const meta = balanceMeta.get(id) ?? remoteMeta.get(id) ?? { ledger_id:'ldg_test', currency:'EGP' };
+        return json({ balance: remoteBalances.get(id), ...meta });
       }
       if (url.includes('/transactions/reference/')) {
         const ref = decodeURIComponent(url.split('/').pop()!);
@@ -82,6 +93,17 @@ describe('BlnkLedgerAdapter', () => {
     expect(balanceIds.get(accountId)).toBe('bln_user_1');
     const mapping = await pool.query('select blnk_balance_id from ledger_account_mappings where local_account_id=$1', [accountId]);
     expect(mapping.rows[0].blnk_balance_id).toBe('bln_user_1');
+  });
+
+  it('creates AED balances only in the separately configured AED ledger', async () => {
+    const accountId = await adapter.createAccount(null, 'user', 'AED');
+    expect(await adapter.balance(accountId)).toBe(0);
+    const mapping = await pool.query(
+      'select blnk_balance_id, ledger_id, currency from ledger_account_mappings where local_account_id=$1',
+      [accountId],
+    );
+    expect(mapping.rows[0].ledger_id).toBe('ldg_aed');
+    expect(mapping.rows[0].currency).toBe('AED');
   });
 
   it('fails closed for accounts with legacy PostgreSQL ledger activity', async () => {

@@ -1,4 +1,4 @@
-/** Money movement input shared by ledger implementations. Amounts are integer piasters. */
+/** Money movement input shared by ledger implementations. Amounts are integer currency minor units. */
 export interface TransferInput {
   from: string;
   to: string;
@@ -6,4 +6,6 @@ export interface TransferInput {
   idemKey: string;
   kind: string;
   memo?: string;
+  /** ISO 4217 code. The ledger also verifies it against both account records. */
+  currency?: string;
 }

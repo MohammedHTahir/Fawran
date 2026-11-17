@@ -11,7 +11,7 @@ describe('PaymentIntentStore', () => {
     store = new PaymentIntentStore(pool);
   });
 
-  it('creates a durable intent using integer piasters', async () => {
+  it('creates a durable intent using integer minor units', async () => {
     (pool.query as jest.Mock).mockResolvedValueOnce({
       rows: [{ id: 'intent-1', amount: '2500', status: 'created' }],
     });
@@ -59,6 +59,24 @@ describe('PaymentIntentStore', () => {
       amount: 3000,
       method: 'card',
       requestFingerprint: 'changed',
+    })).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('treats currency as part of the idempotent payment-intent request', async () => {
+    (pool.query as jest.Mock)
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{
+        id: 'intent-aed', amount: '2500', currency: 'AED', method: 'card', user_id: 'user-1',
+        request_fingerprint: 'same-fingerprint',
+      }] });
+    await expect(store.create({
+      idempotencyKey: 'user:funding:currency-01',
+      reference: 'funding-currency-01',
+      userId: 'user-1',
+      amount: 2500,
+      currency: 'USD',
+      method: 'card',
+      requestFingerprint: 'same-fingerprint',
     })).rejects.toBeInstanceOf(ConflictException);
   });
 
