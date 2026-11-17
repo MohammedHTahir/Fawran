@@ -7,8 +7,8 @@ import { Inject } from '@nestjs/common';
 import { PG_POOL, SYSTEM_PROVIDER_ACCOUNT } from '../db/db.module';
 import { LedgerPort } from './ledger.port';
 import { TransferInput } from './ledger.types';
+import { getMarketByCurrency } from '../markets/market-registry';
 
-const EGP_PRECISION = 100;
 const TERMINAL_SUCCESS = new Set(['APPLIED']);
 const PENDING = new Set(['QUEUED', 'INFLIGHT']);
 type Json = Record<string, any>;
@@ -16,20 +16,22 @@ type Json = Record<string, any>;
 @Injectable()
 export class BlnkLedgerAdapter implements LedgerPort {
   private readonly baseUrl: string;
-  private readonly ledgerId: string;
-  private readonly systemBalanceId: string;
   private readonly apiKey?: string;
 
   constructor(@Inject(PG_POOL) private readonly pool: Pool) {
     this.baseUrl = (process.env.BLNK_BASE_URL ?? 'http://127.0.0.1:5001').replace(/\/+$/, '');
-    this.ledgerId = process.env.BLNK_LEDGER_ID ?? '';
-    this.systemBalanceId = process.env.BLNK_SYSTEM_BALANCE_ID ?? '';
     this.apiKey = process.env.BLNK_API_KEY;
   }
 
-  private config() {
-    if (!this.ledgerId) throw new ServiceUnavailableException('Blnk is selected but BLNK_LEDGER_ID is not configured');
-    if (!this.systemBalanceId) throw new ServiceUnavailableException('Blnk is selected but BLNK_SYSTEM_BALANCE_ID is not configured');
+  private config(currency: string) {
+    const suffix = currency.toUpperCase();
+    const ledgerId = process.env[`BLNK_LEDGER_ID_${suffix}`] ??
+      (suffix === 'EGP' ? process.env.BLNK_LEDGER_ID : undefined);
+    const systemBalanceId = process.env[`BLNK_SYSTEM_BALANCE_ID_${suffix}`] ??
+      (suffix === 'EGP' ? process.env.BLNK_SYSTEM_BALANCE_ID : undefined);
+    if (!ledgerId) throw new ServiceUnavailableException(`Blnk ledger is not configured for ${suffix}; set BLNK_LEDGER_ID_${suffix}`);
+    if (!systemBalanceId) throw new ServiceUnavailableException(`Blnk system balance is not configured for ${suffix}; set BLNK_SYSTEM_BALANCE_ID_${suffix}`);
+    if (!getMarketByCurrency(suffix)) throw new ServiceUnavailableException(`Currency ${suffix} is not supported by the market catalog`);
     if (process.env.NODE_ENV === 'production') {
       if (!this.apiKey) throw new ServiceUnavailableException('BLNK_API_KEY is required when Blnk is used in production');
       if (!this.baseUrl.startsWith('https://')) throw new ServiceUnavailableException('Blnk must use HTTPS in production');
@@ -37,10 +39,15 @@ export class BlnkLedgerAdapter implements LedgerPort {
         throw new ServiceUnavailableException('BLNK_SECURE_MODE=true is required before using Blnk in production');
       }
     }
+    return { ledgerId, systemBalanceId, precision: 10 ** getMarketByCurrency(suffix)!.currencyMinorUnit };
   }
 
   private async request(path: string, init: RequestInit = {}): Promise<Json> {
-    this.config();
+    if (process.env.NODE_ENV === 'production') {
+      if (!this.apiKey || !this.baseUrl.startsWith('https://') || process.env.BLNK_SECURE_MODE !== 'true') {
+        throw new ServiceUnavailableException('Blnk production transport is not securely configured');
+      }
+    }
     const headers = new Headers(init.headers);
     headers.set('content-type', 'application/json');
     if (this.apiKey) headers.set('X-blnk-key', this.apiKey);
@@ -74,20 +81,28 @@ export class BlnkLedgerAdapter implements LedgerPort {
   }
 
   private async resolveBalance(localAccountId: string): Promise<string> {
-    this.config();
+    const local = await this.pool.query('select id, owner_id, kind, currency from accounts where id=$1', [localAccountId]);
+    if (!local.rows[0]) throw new BadRequestException('Unknown account');
+    const currency = String(local.rows[0].currency);
+    const cfg = this.config(currency);
     const known = await this.pool.query(
-      'select blnk_balance_id from ledger_account_mappings where local_account_id=$1', [localAccountId]);
-    if (known.rows[0]) return known.rows[0].blnk_balance_id as string;
+      'select blnk_balance_id, ledger_id, currency from ledger_account_mappings where local_account_id=$1', [localAccountId]);
+    if (known.rows[0]) {
+      if (known.rows[0].currency !== currency || known.rows[0].ledger_id !== cfg.ledgerId) {
+        throw new ServiceUnavailableException('Existing Blnk mapping does not match the account currency ledger');
+      }
+      return known.rows[0].blnk_balance_id as string;
+    }
 
     if (localAccountId === SYSTEM_PROVIDER_ACCOUNT) {
-      const remote = await this.request(`/balances/${encodeURIComponent(this.systemBalanceId)}`);
-      if (remote.ledger_id !== this.ledgerId || remote.currency !== 'EGP') {
-        throw new ServiceUnavailableException('Configured Blnk system balance must belong to BLNK_LEDGER_ID and use EGP');
+      const remote = await this.request(`/balances/${encodeURIComponent(cfg.systemBalanceId)}`);
+      if (remote.ledger_id !== cfg.ledgerId || remote.currency !== currency) {
+        throw new ServiceUnavailableException(`Configured Blnk system balance must belong to the ${currency} ledger and use ${currency}`);
       }
       await this.pool.query(
         `insert into ledger_account_mappings (local_account_id, blnk_balance_id, ledger_id, currency)
-         values ($1,$2,$3,'EGP') on conflict (local_account_id) do nothing`,
-        [localAccountId, this.systemBalanceId, this.ledgerId]);
+         values ($1,$2,$3,$4) on conflict (local_account_id) do nothing`,
+        [localAccountId, cfg.systemBalanceId, cfg.ledgerId, currency]);
       const saved = await this.pool.query(
         'select blnk_balance_id from ledger_account_mappings where local_account_id=$1', [localAccountId]);
       if (!saved.rows[0]) throw new ServiceUnavailableException('Unable to map the configured Blnk system balance');
@@ -101,7 +116,7 @@ export class BlnkLedgerAdapter implements LedgerPort {
     try {
       await client.query('begin');
       const account = await client.query(
-        'select id, owner_id, kind from accounts where id=$1 for update', [localAccountId]);
+        'select id, owner_id, kind, currency from accounts where id=$1 for update', [localAccountId]);
       if (!account.rows[0]) throw new BadRequestException('Unknown account');
       const legacyActivity = await client.query(
         'select id from ledger_entries where account_id=$1 limit 1', [localAccountId]);
@@ -125,7 +140,7 @@ export class BlnkLedgerAdapter implements LedgerPort {
       const created = recoveredId ? { balance_id: recoveredId } : await this.request('/balances', {
         method: 'POST',
         body: JSON.stringify({
-          ledger_id: this.ledgerId, currency: 'EGP',
+          ledger_id: cfg.ledgerId, currency,
           meta_data: { fawran_account_id: localAccountId, fawran_owner_id: account.rows[0].owner_id ?? '' },
         }),
       });
@@ -133,8 +148,8 @@ export class BlnkLedgerAdapter implements LedgerPort {
       if (typeof remoteId !== 'string' || !remoteId) throw new ServiceUnavailableException('Blnk balance response omitted balance_id');
       await client.query(
         `insert into ledger_account_mappings (local_account_id, blnk_balance_id, ledger_id, currency)
-         values ($1,$2,$3,'EGP')`,
-        [localAccountId, remoteId, this.ledgerId]);
+         values ($1,$2,$3,$4)`,
+        [localAccountId, remoteId, cfg.ledgerId, currency]);
       await client.query('commit');
       return remoteId;
     } catch (error) {
@@ -143,9 +158,9 @@ export class BlnkLedgerAdapter implements LedgerPort {
     } finally { client.release(); }
   }
 
-  async createAccount(ownerId: string | null, kind = 'user'): Promise<string> {
+  async createAccount(ownerId: string | null, kind = 'user', currency = 'EGP'): Promise<string> {
     const id = randomUUID();
-    await this.pool.query('insert into accounts (id, owner_id, kind) values ($1,$2,$3)', [id, ownerId, kind]);
+    await this.pool.query('insert into accounts (id, owner_id, kind, currency) values ($1,$2,$3,$4)', [id, ownerId, kind, currency]);
     await this.resolveBalance(id);
     return id;
   }
@@ -154,7 +169,7 @@ export class BlnkLedgerAdapter implements LedgerPort {
     const remoteId = await this.resolveBalance(accountId);
     const body = await this.request(`/balances/${encodeURIComponent(remoteId)}`);
     const value = body.balance;
-    if (!Number.isSafeInteger(value)) throw new ServiceUnavailableException('Blnk returned a non-integer EGP balance');
+    if (!Number.isSafeInteger(value)) throw new ServiceUnavailableException('Blnk returned a non-integer minor-unit balance');
     return value;
   }
 
@@ -164,7 +179,7 @@ export class BlnkLedgerAdapter implements LedgerPort {
 
   private fingerprint(t: TransferInput): string {
     return createHash('sha256').update(JSON.stringify({
-      from: t.from, to: t.to, amount: t.amount, kind: t.kind, memo: t.memo ?? null,
+      from: t.from, to: t.to, amount: t.amount, currency: t.currency ?? null, kind: t.kind, memo: t.memo ?? null,
     })).digest('hex');
   }
 
@@ -212,6 +227,13 @@ export class BlnkLedgerAdapter implements LedgerPort {
     if (!Number.isSafeInteger(t.amount) || t.amount <= 0) throw new BadRequestException('Amount must be a positive integer (piasters)');
     if (t.from === t.to) throw new BadRequestException('Cannot transfer to the same account');
     if (!t.idemKey || t.idemKey.length > 512) throw new BadRequestException('Invalid idempotency key');
+    const accounts = await this.pool.query('select id, currency from accounts where id=$1 or id=$2', [t.from, t.to]);
+    if (accounts.rows.length !== 2 || accounts.rows[0].currency !== accounts.rows[1].currency) {
+      throw new BadRequestException('Blnk transfers require two accounts with the same currency');
+    }
+    const currency = String(accounts.rows[0].currency);
+    if (t.currency && t.currency !== currency) throw new BadRequestException('Transfer currency does not match account currency');
+    const cfg = this.config(currency);
     const from = await this.resolveBalance(t.from);
     const to = await this.resolveBalance(t.to);
     const fingerprint = this.fingerprint(t);
@@ -230,7 +252,7 @@ export class BlnkLedgerAdapter implements LedgerPort {
         result = await this.request('/transactions', {
           method: 'POST',
           body: JSON.stringify({
-            precise_amount: t.amount, precision: EGP_PRECISION, currency: 'EGP',
+            precise_amount: t.amount, precision: cfg.precision, currency,
             source: from, destination: to, reference, description: t.memo ?? t.kind,
             skip_queue: true, allow_overdraft: false,
             meta_data: { fawran_kind: t.kind },
@@ -315,6 +337,9 @@ export class BlnkLedgerAdapter implements LedgerPort {
   }
 
   async history(accountId: string, limit = 50) {
+    const account = await this.pool.query('select currency from accounts where id=$1', [accountId]);
+    if (!account.rows[0]) throw new BadRequestException('Unknown account');
+    const currency = String(account.rows[0].currency);
     const remoteId = await this.resolveBalance(accountId);
     const pageSize = Math.max(1, Math.min(100, Math.trunc(limit)));
     const [debits, credits] = await Promise.all([
@@ -348,7 +373,7 @@ export class BlnkLedgerAdapter implements LedgerPort {
         id, kind: detail.meta_data?.fawran_kind ?? row.meta_data?.fawran_kind ?? detail.description ?? row.description ?? 'transfer',
         memo: detail.description ?? row.description ?? null,
         createdAt: detail.created_at ?? row.created_at,
-        amount: source === remoteId ? -precise : precise,
+        amount: source === remoteId ? -precise : precise, currency,
       });
     }
     return [...unique.values()].sort((a, b) =>
