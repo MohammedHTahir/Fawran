@@ -24,7 +24,7 @@ async function main() {
       before update of currency on accounts
       for each row execute function prevent_account_currency_change()
     `);
-    process.stdout.write(JSON.stringify({ ...result, currencyGuard: 'installed' }) + '\\n');
+    process.stdout.write(JSON.stringify({ ...result, currencyGuard: 'installed' }) + '\n');
   } finally {
     await pool.end();
   }
