@@ -40,6 +40,23 @@ describe('Ledger', () => {
     expect(await ledger.balance(b)).toBe(1_000);
   });
 
+  it('isolates balances by currency and rejects cross-currency transfers', async () => {
+    const aedSource = await ledger.createAccount(null, 'system', 'AED');
+    const aedA = await ledger.createAccount('multi-user-a', 'user', 'AED');
+    const aedB = await ledger.createAccount('multi-user-b', 'user', 'AED');
+    const usd = await ledger.createAccount('multi-user-a', 'user', 'USD');
+    await ledger.transfer({ from: aedSource, to: aedA, amount: 5_000, currency: 'AED',
+      idemKey: 'seed-aed-' + aedA, kind: 'test_funding' });
+    await ledger.transfer({ from: aedA, to: aedB, amount: 1_250, currency: 'AED',
+      idemKey: 'aed-p2p-01', kind: 'p2p' });
+    expect(await ledger.balance(aedA)).toBe(3_750);
+    expect(await ledger.balance(aedB)).toBe(1_250);
+    await expect(ledger.transfer({ from: aedA, to: usd, amount: 100,
+      idemKey: 'cross-currency-01', kind: 'p2p' })).rejects.toThrow(/same currency/);
+    expect((await ledger.history(aedB))[0].currency).toBe('AED');
+    expect((await ledger.verifyIntegrity()).ok).toBe(true);
+  });
+
   it('rejects invalid amounts and self-transfers', async () => {
     await expect(ledger.transfer({ from: a, to: b, amount: 0, idemKey: 'z', kind: 'p2p' })).rejects.toThrow();
     await expect(ledger.transfer({ from: a, to: b, amount: 1.5, idemKey: 'y', kind: 'p2p' })).rejects.toThrow();
