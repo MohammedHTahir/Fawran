@@ -17,6 +17,7 @@ describe('BlnkLedgerAdapter', () => {
   const remoteBalances = new Map<string, number>();
   const balanceIds = new Map<string, string>();
   const balanceMeta = new Map<string, {ledger_id:string;currency:string}>();
+  const remoteMeta = new Map<string, {ledger_id:string;currency:string}>();
   const txns = new Map<string, any>();
   let nextBalance = 0;
 
