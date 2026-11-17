@@ -230,27 +230,6 @@ export async function runMigrations(pool: Pool): Promise<{ applied: number[]; cu
       throw error;
     } finally { client.release(); }
   }
-  // pg-mem does not implement PostgreSQL triggers; real migration deployments do.
-  // This database guard makes account currency immutable even for direct SQL writes.
-  if (process.env.NODE_ENV !== 'test') {
-    await pool.query(`
-      create or replace function prevent_account_currency_change()
-      returns trigger language plpgsql as $
-      begin
-        if new.currency is distinct from old.currency then
-          raise exception 'Account currency is immutable' using errcode = '23514';
-        end if;
-        return new;
-      end;
-      $;
-    `);
-    await pool.query('drop trigger if exists accounts_currency_immutable on accounts');
-    await pool.query(`
-      create trigger accounts_currency_immutable
-      before update of currency on accounts
-      for each row execute function prevent_account_currency_change()
-    `);
-  }
   const result = await pool.query('select coalesce(max(version),0)::int as version from schema_migrations');
   return { applied, current: Number(result.rows[0]?.version ?? 0) };
 }
