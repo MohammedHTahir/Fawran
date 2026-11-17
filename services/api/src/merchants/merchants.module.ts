@@ -11,6 +11,7 @@ import { AuthGuard, AuthModule, AuthUser, CurrentUser } from '../auth/auth';
 import { PG_POOL } from '../db/db.module';
 import { LEDGER_PORT, LedgerPort } from '../ledger/ledger.port';
 import { getMarketByCurrency, getMarketProfile } from '../markets/market-registry';
+import { LedgerModule } from '../ledger/ledger.module';
 import { AdminGuard } from '../admin/admin.guard';
 
 class CreateMerchantDto {
@@ -335,7 +336,7 @@ class MerchantAdminController {
 }
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, LedgerModule],
   controllers: [MerchantController, MerchantAdminController],
   providers: [MerchantService, AdminGuard],
   exports: [MerchantService],
