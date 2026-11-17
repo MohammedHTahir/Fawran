@@ -108,3 +108,46 @@ Product direction: global business and personal finance workspace
 - Account settings separate profile identity, language selection, and active-session security controls.
 - The current session cannot be revoked from its own row; sign-out and sign-out-all remain explicit confirmation actions.
 - Detail layouts adapt their reading alignment for Arabic RTL and English LTR.
+
+## Manual mobile acceptance walkthrough
+
+Run this checklist on a physical Android device and an iPhone/simulator using a non-production test environment.
+
+### Sign-in
+1. Launch with no stored session and verify the branded illustration, phone field and language switch.
+2. Switch Arabic / English and confirm direction, alignment and labels update without restarting.
+3. Request an OTP, enter an invalid code, then a valid development/test code. Verify clear error and loading feedback.
+4. Background and reopen the app; confirm secure session restoration behaves correctly.
+
+### Home and balance
+1. Verify the balance is formatted in the correct currency and can be hidden.
+2. Toggle balance visibility and navigate away/back; ensure it remains masked or visible as intended.
+3. Check current-month totals against the transactions returned by the API.
+4. Pull to refresh and test offline / server error handling.
+5. Confirm prototype disclosures remain visible wherever simulated top-up is offered.
+
+### Transfers and payment links
+1. Try invalid phone and amount values; confirm no request is sent.
+2. Enter a valid test recipient and amount; verify the confirmation includes the intended recipient and amount.
+3. Cancel confirmation and verify no transfer was submitted.
+4. Confirm a test transfer and verify the receipt values match the server response and local confirmation time.
+5. Create a test payment link and verify copy/share actions. Confirm the UI still explains that public checkout is not live.
+
+### Activity and transaction detail
+1. Test all / incoming / outgoing filters.
+2. Search by transaction kind and memo; clear the query and verify all results return.
+3. Open a transaction and compare amount, type, timestamp, memo and ID with the API response.
+4. Copy and share details; verify no token or private authentication data is included.
+
+### Account and security
+1. Change language and navigate between tabs; confirm preference persists after restart.
+2. Confirm the current session is labelled and cannot be revoked from its own row.
+3. Revoke a different test session and confirm the list refreshes.
+4. Test sign-out and sign-out-all confirmation flows.
+
+### Accessibility and device layout
+1. Test VoiceOver / TalkBack on navigation, balance visibility, filters, row actions and modal controls.
+2. Increase system text size and verify content remains readable and scrollable.
+3. Test small and large screens, safe areas, keyboard open/close, and landscape if supported.
+4. Verify Arabic RTL order and mixed Arabic / Latin / numeric strings.
+5. Confirm touch targets are comfortably usable and that errors are not communicated by colour alone.
