@@ -244,7 +244,7 @@ export class RewardsService {
         `select l.id,l.account_id,l.points_remaining,a.owner_id
          from reward_lots l join reward_accounts a on a.id=l.account_id
          where l.points_remaining>0 and l.expires_at is not null and l.expires_at<=now()
-         order by l.expires_at asc limit $1 for update of l skip locked`,
+         order by l.expires_at asc limit $1 for update`,
         [safeLimit],
       );
       let pointsExpired = 0;
@@ -306,9 +306,3 @@ export class RewardsService {
     return { referralId: existing.rows[0]?.id, status: existing.rows[0]?.status, alreadyClaimed: true };
   }
 }
-
-export const rewardsServiceProvider = {
-  provide: RewardsService,
-  useFactory: (pool: Pool) => new RewardsService(pool),
-  inject: [PG_POOL],
-};
