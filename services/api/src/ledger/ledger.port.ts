@@ -4,7 +4,7 @@ import { TransferInput } from './ledger.types';
 export const LEDGER_PORT = 'LEDGER_PORT';
 
 export interface LedgerPort {
-  createAccount(ownerId: string | null, kind?: string): Promise<string>;
+  createAccount(ownerId: string | null, kind?: string, currency?: string): Promise<string>;
   balance(accountId: string): Promise<number>;
   transfer(input: TransferInput): Promise<{ txnId: string; replayed: boolean }>;
   history(accountId: string, limit?: number): Promise<Array<{
@@ -13,5 +13,6 @@ export interface LedgerPort {
     memo: string | null;
     createdAt: Date | string;
     amount: number;
+    currency: string;
   }>>;
 }
