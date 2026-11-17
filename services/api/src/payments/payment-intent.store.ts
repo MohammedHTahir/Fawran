@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Pool } from 'pg';
 import { PG_POOL } from '../db/db.module';
+import { getMarketByCurrency } from '../markets/market-registry';
 import {
   assertProviderEventReplayMatches,
   PaymentIntentStatus,
@@ -32,6 +33,8 @@ export class PaymentIntentStore {
   constructor(private readonly pool: Pool) {}
 
   async create(input: CreatePaymentIntentInput) {
+    const currency = (input.currency ?? 'EGP').trim().toUpperCase();
+    if (!getMarketByCurrency(currency)) throw new ConflictException('Payment intent currency is not in the supported market catalog');
     if (!Number.isSafeInteger(input.amount) || input.amount <= 0) {
       throw new ConflictException('Payment intent amount must be a positive integer number of currency minor units');
     }
@@ -43,7 +46,7 @@ export class PaymentIntentStore {
        returning id, reference, idempotency_key, user_id, amount, currency, method, status,
                  provider_name, provider_ref, ledger_txn_id, created_at, updated_at`,
       [randomUUID(), input.reference, input.idempotencyKey, input.userId ?? null,
-        input.amount, input.currency ?? 'EGP', input.method, input.requestFingerprint, input.expiresAt ?? null],
+        input.amount, currency, input.method, input.requestFingerprint, input.expiresAt ?? null],
     );
     if (inserted.rows[0]) return this.normalize(inserted.rows[0]);
 
@@ -55,7 +58,7 @@ export class PaymentIntentStore {
     );
     const row = existing.rows[0];
     if (!row || row.request_fingerprint !== input.requestFingerprint ||
-        Number(row.amount) !== input.amount || (row.currency ?? 'EGP') !== (input.currency ?? 'EGP') || row.method !== input.method ||
+        Number(row.amount) !== input.amount || (row.currency ?? 'EGP') !== currency || row.method !== input.method ||
         (row.user_id ?? null) !== (input.userId ?? null)) {
       throw new ConflictException('Idempotency key was already used for a different payment intent');
     }
