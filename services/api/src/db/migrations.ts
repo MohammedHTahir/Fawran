@@ -385,6 +385,51 @@ create table admin_audit_events (
 create index admin_audit_events_created_idx on admin_audit_events(created_at desc);
 `,
   },
+}, {
+  version: 9,
+  name: 'test_payment_orchestration_refunds_and_payout_gates',
+  sql: `
+alter table payment_intents add column if not exists destination_account_id text references accounts(id) on delete restrict;
+alter table payment_intents add column if not exists purpose text not null default 'other' check (purpose in ('wallet_topup','merchant_checkout','other'));
+
+create table system_provider_accounts (
+  currency text primary key check (currency in ('AED','EGP','SAR','GBP','USD')),
+  ledger_account_id text not null unique references accounts(id) on delete restrict,
+  created_at timestamptz not null default now()
+);
+insert into system_provider_accounts(currency,ledger_account_id) values('EGP','sys:provider') on conflict(currency) do nothing;
+
+create table refunds (
+  id text primary key,
+  idempotency_key text not null unique,
+  request_fingerprint text not null,
+  payment_intent_id text not null references payment_intents(id) on delete restrict,
+  amount bigint not null check (amount > 0),
+  currency text not null check (currency in ('AED','EGP','SAR','GBP','USD')),
+  status text not null default 'processing' check (status in ('processing','succeeded','failed','needs_reconciliation')),
+  provider_ref text,
+  ledger_txn_id text,
+  reason text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index refunds_intent_status_idx on refunds(payment_intent_id,status);
+
+create table payout_requests (
+  id text primary key,
+  idempotency_key text not null unique,
+  merchant_id text not null references merchants(id) on delete restrict,
+  merchant_account_id text not null references merchant_accounts(id) on delete restrict,
+  amount bigint not null check (amount > 0),
+  currency text not null check (currency in ('AED','EGP','SAR','GBP','USD')),
+  status text not null default 'blocked' check (status in ('blocked','requested','processing','succeeded','failed')),
+  blocked_reason text not null default 'licensed_partner_and_market_approval_required',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index payout_requests_merchant_created_idx on payout_requests(merchant_id,created_at desc);
+` ,
+  }
 ] as const;
 
 /** Run as an explicit deployment step, never during API startup. */
