@@ -298,13 +298,15 @@ export class RewardsService {
         if (!inserted.rows[0] || String(inserted.rows[0].id) !== proposedTransactionId) continue;
         const transactionId = String(inserted.rows[0].id);
         await client.query('update reward_lots set points_remaining=0 where id=$1', [lot.id]);
+        const customerBalance = await client.query('select balance_points from reward_accounts where id=$1', [lot.account_id]);
         await client.query(
-          'update reward_accounts set balance_points=balance_points-$2,updated_at=now() where id=$1',
-          [lot.account_id, points],
+          'update reward_accounts set balance_points=$2,updated_at=now() where id=$1',
+          [lot.account_id, Number(customerBalance.rows[0].balance_points) - points],
         );
+        expiryBalance += points;
         await client.query(
-          'update reward_accounts set balance_points=balance_points+$2,updated_at=now() where id=$1',
-          [expiry.id, points],
+          'update reward_accounts set balance_points=$2,updated_at=now() where id=$1',
+          [expiry.id, expiryBalance],
         );
         await client.query(
           'insert into reward_entries(id,transaction_id,account_id,points_delta) values($1,$2,$3,$4)',
