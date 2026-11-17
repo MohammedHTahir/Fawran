@@ -6,4 +6,6 @@ export interface TransferInput {
   idemKey: string;
   kind: string;
   memo?: string;
+  /** ISO 4217 code. The ledger also verifies it against both account records. */
+  currency?: string;
 }
