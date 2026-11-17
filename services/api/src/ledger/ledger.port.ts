@@ -1,6 +1,6 @@
 import { TransferInput } from './ledger.types';
 
-/** Application-facing contract for money movement. Amounts are integer piasters. */
+/** Application-facing contract for money movement. Amounts are integer currency minor units. */
 export const LEDGER_PORT = 'LEDGER_PORT';
 
 export interface LedgerPort {
