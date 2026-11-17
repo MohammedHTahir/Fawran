@@ -193,7 +193,7 @@ create index if not exists accounts_owner_currency_idx on accounts(owner_id, cur
   sql: `
 create table reward_accounts (
   id text primary key,
-  owner_id text references users(id) on delete cascade,
+  owner_id text unique references users(id) on delete cascade,
   kind text not null check (kind in ('customer','issuance','redemption','expiry')),
   balance_points bigint not null default 0,
   lifetime_earned_points bigint not null default 0,
@@ -202,10 +202,6 @@ create table reward_accounts (
   updated_at timestamptz not null default now(),
   check (kind <> 'customer' or balance_points >= 0)
 );
-create unique index reward_customer_account_owner_unique
-  on reward_accounts(owner_id) where owner_id is not null and kind='customer';
-create unique index reward_system_account_kind_unique
-  on reward_accounts(kind) where owner_id is null;
 
 create table reward_transactions (
   id text primary key,
