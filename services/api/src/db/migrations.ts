@@ -418,6 +418,7 @@ create index refunds_intent_status_idx on refunds(payment_intent_id,status);
 create table payout_requests (
   id text primary key,
   idempotency_key text not null unique,
+  request_fingerprint text not null,
   merchant_id text not null references merchants(id) on delete restrict,
   merchant_account_id text not null references merchant_accounts(id) on delete restrict,
   amount bigint not null check (amount > 0),
