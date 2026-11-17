@@ -12,7 +12,7 @@ export class AdminGuard implements CanActivate {
     const user = request.user as AuthUser | undefined;
     if (!user?.id) throw new ForbiddenException('Authenticated administrator required');
     const result = await this.pool.query(
-      'select role from admin_roles where user_id=$1 and active=true limit 1',
+      'select role from admin_roles where user_id=$1 and active=true and role in ('super_admin','compliance_admin') limit 1',
       [user.id],
     );
     if (!result.rows[0]) throw new ForbiddenException('Administrator access required');
