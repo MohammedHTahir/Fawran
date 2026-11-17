@@ -147,6 +147,10 @@ export class BlnkLedgerAdapter implements LedgerPort {
       });
       const remoteId = created.balance_id ?? created.id;
       if (typeof remoteId !== 'string' || !remoteId) throw new ServiceUnavailableException('Blnk balance response omitted balance_id');
+      const remoteBalance = await this.request(`/balances/${encodeURIComponent(remoteId)}`);
+      if (remoteBalance.ledger_id !== cfg.ledgerId || remoteBalance.currency !== currency) {
+        throw new ServiceUnavailableException(`Created or recovered Blnk balance is not in the configured ${currency} ledger`);
+      }
       await client.query(
         `insert into ledger_account_mappings (local_account_id, blnk_balance_id, ledger_id, currency)
          values ($1,$2,$3,$4)`,
