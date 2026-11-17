@@ -1,5 +1,5 @@
 import { LedgerService, InsufficientFunds } from '../src/ledger/ledger.service';
-import { SYSTEM_PROVIDER_ACCOUNT } from '../src/db/db.module';
+import { PG_POOL, SYSTEM_PROVIDER_ACCOUNT } from '../src/db/db.module';
 import { makeApp } from './helpers';
 
 describe('Ledger', () => {
@@ -41,6 +41,9 @@ describe('Ledger', () => {
   });
 
   it('isolates balances by currency and rejects cross-currency transfers', async () => {
+    const pool = app.get(PG_POOL);
+    await pool.query('insert into users(id,phone) values($1,$2),($3,$4)',
+      ['multi-user-a','+201000000001','multi-user-b','+201000000002']);
     const aedSource = await ledger.createAccount(null, 'system', 'AED');
     const aedA = await ledger.createAccount('multi-user-a', 'user', 'AED');
     const aedB = await ledger.createAccount('multi-user-b', 'user', 'AED');
