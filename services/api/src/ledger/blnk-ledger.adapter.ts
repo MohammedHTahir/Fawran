@@ -118,6 +118,7 @@ export class BlnkLedgerAdapter implements LedgerPort {
       const account = await client.query(
         'select id, owner_id, kind, currency from accounts where id=$1 for update', [localAccountId]);
       if (!account.rows[0]) throw new BadRequestException('Unknown account');
+      if (account.rows[0].currency !== currency) throw new ServiceUnavailableException('Account currency changed during Blnk balance provisioning');
       const legacyActivity = await client.query(
         'select id from ledger_entries where account_id=$1 limit 1', [localAccountId]);
       if (legacyActivity.rows.length > 0) {
@@ -159,6 +160,7 @@ export class BlnkLedgerAdapter implements LedgerPort {
   }
 
   async createAccount(ownerId: string | null, kind = 'user', currency = 'EGP'): Promise<string> {
+    this.config(currency);
     const id = randomUUID();
     await this.pool.query('insert into accounts (id, owner_id, kind, currency) values ($1,$2,$3,$4)', [id, ownerId, kind, currency]);
     await this.resolveBalance(id);
@@ -177,9 +179,9 @@ export class BlnkLedgerAdapter implements LedgerPort {
     return `fawran_${createHash('sha256').update(key).digest('hex')}`;
   }
 
-  private fingerprint(t: TransferInput): string {
+  private fingerprint(t: TransferInput, currency: string): string {
     return createHash('sha256').update(JSON.stringify({
-      from: t.from, to: t.to, amount: t.amount, currency: t.currency ?? null, kind: t.kind, memo: t.memo ?? null,
+      from: t.from, to: t.to, amount: t.amount, currency, kind: t.kind, memo: t.memo ?? null,
     })).digest('hex');
   }
 
@@ -224,7 +226,7 @@ export class BlnkLedgerAdapter implements LedgerPort {
   }
 
   async transfer(t: TransferInput): Promise<{ txnId: string; replayed: boolean }> {
-    if (!Number.isSafeInteger(t.amount) || t.amount <= 0) throw new BadRequestException('Amount must be a positive integer (piasters)');
+    if (!Number.isSafeInteger(t.amount) || t.amount <= 0) throw new BadRequestException('Amount must be a positive integer currency minor units');
     if (t.from === t.to) throw new BadRequestException('Cannot transfer to the same account');
     if (!t.idemKey || t.idemKey.length > 512) throw new BadRequestException('Invalid idempotency key');
     const accounts = await this.pool.query('select id, currency from accounts where id=$1 or id=$2', [t.from, t.to]);
@@ -236,7 +238,7 @@ export class BlnkLedgerAdapter implements LedgerPort {
     const cfg = this.config(currency);
     const from = await this.resolveBalance(t.from);
     const to = await this.resolveBalance(t.to);
-    const fingerprint = this.fingerprint(t);
+    const fingerprint = this.fingerprint(t, currency);
     const reference = this.reference(t.idemKey);
     const op = await this.persistOperation(t.idemKey, fingerprint, reference);
     if (op.status === 'applied' && op.blnk_transaction_id) {
