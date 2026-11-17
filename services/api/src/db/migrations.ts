@@ -285,6 +285,105 @@ insert into reward_tiers(tier, lifetime_points_required) values
   ('starter',0),('bronze',1000),('silver',10000),('gold',50000)
 on conflict (tier) do nothing;
 `,
+}, {
+  version: 8,
+  name: 'merchant_accounts_kyb_and_admin_audit',
+  sql: `
+create table merchants (
+  id text primary key,
+  owner_user_id text not null references users(id) on delete restrict,
+  legal_name text not null,
+  display_name text not null,
+  country_code text not null,
+  currency text not null check (currency in ('AED','EGP','SAR','GBP','USD')),
+  kyb_status text not null default 'not_started' check (kyb_status in ('not_started','pending','needs_info','approved','rejected')),
+  status text not null default 'pending' check (status in ('pending','active','suspended')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index merchants_owner_created_idx on merchants(owner_user_id, created_at desc);
+
+create table merchant_members (
+  merchant_id text not null references merchants(id) on delete cascade,
+  user_id text not null references users(id) on delete restrict,
+  role text not null check (role in ('owner','admin','manager','viewer')),
+  created_at timestamptz not null default now(),
+  primary key(merchant_id,user_id)
+);
+create index merchant_members_user_idx on merchant_members(user_id, created_at desc);
+
+create table merchant_kyb_cases (
+  id text primary key,
+  merchant_id text not null references merchants(id) on delete restrict,
+  status text not null check (status in ('submitted','under_review','needs_info','approved','rejected')),
+  submitted_by text not null references users(id) on delete restrict,
+  document_types jsonb not null default '[]'::jsonb,
+  registration_number text,
+  reviewed_by text references users(id) on delete restrict,
+  decision_reason text,
+  submitted_at timestamptz not null default now(),
+  reviewed_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index merchant_kyb_status_idx on merchant_kyb_cases(status, submitted_at);
+
+create table merchant_accounts (
+  id text primary key,
+  merchant_id text not null references merchants(id) on delete restrict,
+  currency text not null check (currency in ('AED','EGP','SAR','GBP','USD')),
+  ledger_account_id text not null unique references accounts(id) on delete restrict,
+  settlement_status text not null default 'blocked' check (settlement_status in ('blocked','pending_partner','active','suspended')),
+  created_at timestamptz not null default now(),
+  unique(merchant_id,currency)
+);
+
+create table merchant_stores (
+  id text primary key,
+  merchant_id text not null references merchants(id) on delete cascade,
+  name text not null,
+  country_code text not null,
+  address text,
+  status text not null default 'draft' check (status in ('draft','active','suspended')),
+  created_at timestamptz not null default now()
+);
+create index merchant_stores_merchant_idx on merchant_stores(merchant_id, created_at desc);
+
+create table merchant_offers (
+  id text primary key,
+  merchant_id text not null references merchants(id) on delete cascade,
+  name text not null,
+  description text,
+  campaign_id text references reward_campaigns(id) on delete restrict,
+  status text not null default 'draft' check (status in ('draft','published','paused','ended')),
+  starts_at timestamptz,
+  ends_at timestamptz,
+  created_at timestamptz not null default now(),
+  check (ends_at is null or starts_at is null or ends_at > starts_at)
+);
+
+alter table reward_campaigns add constraint reward_campaigns_merchant_fk
+  foreign key (merchant_id) references merchants(id) on delete restrict;
+alter table payment_links add column merchant_id text references merchants(id) on delete restrict;
+create index payment_links_merchant_idx on payment_links(merchant_id, created_at desc);
+
+create table admin_roles (
+  user_id text not null references users(id) on delete cascade,
+  role text not null check (role in ('super_admin','compliance_admin','support_admin','finance_admin')),
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  primary key(user_id,role)
+);
+create table admin_audit_events (
+  id text primary key,
+  actor_user_id text not null references users(id) on delete restrict,
+  action text not null,
+  entity_type text not null,
+  entity_id text not null,
+  details jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+create index admin_audit_events_created_idx on admin_audit_events(created_at desc);
+` ,
 }] as const;
 
 /** Run as an explicit deployment step, never during API startup. */
