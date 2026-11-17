@@ -92,6 +92,14 @@ export function getMarketProfile(countryCode: string): MarketProfile | null {
   return { ...market, supportedLocales: [...market.supportedLocales] };
 }
 
+/** Resolve a planning market by its settlement currency. */
+export function getMarketByCurrency(currency: string): MarketProfile | null {
+  const normalized = currency.trim().toUpperCase();
+  const market = MARKET_PROFILES.find((profile) => profile.currency === normalized);
+  if (!market) return null;
+  return { ...market, supportedLocales: [...market.supportedLocales] };
+}
+
 /** Convert a decimal major-unit amount to integer minor units without floats. */
 export function toMinorUnits(amount: string, minorUnit: number): bigint {
   if (!Number.isInteger(minorUnit) || minorUnit < 0 || minorUnit > 6) {
