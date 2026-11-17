@@ -7,6 +7,7 @@ import { HealthModule } from './health/health';
 import { WalletModule } from './wallet/wallet';
 import { PaymentsModule } from './payments/payments.module';
 import { RewardsModule } from './rewards/rewards.module';
+import { MerchantModule } from './merchants/merchants.module';
 
-@Module({ imports: [DbModule, LedgerModule, AuthModule, WalletModule, LinksModule, HealthModule, PaymentsModule, RewardsModule] })
+@Module({ imports: [DbModule, LedgerModule, AuthModule, WalletModule, LinksModule, HealthModule, PaymentsModule, RewardsModule, MerchantModule] })
 export class AppModule {}
