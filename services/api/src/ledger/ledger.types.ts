@@ -1,4 +1,4 @@
-/** Money movement input shared by ledger implementations. Amounts are integer piasters. */
+/** Money movement input shared by ledger implementations. Amounts are integer currency minor units. */
 export interface TransferInput {
   from: string;
   to: string;
