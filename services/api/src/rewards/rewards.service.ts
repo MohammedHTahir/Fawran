@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID, createHash } from 'crypto';
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Pool, PoolClient } from 'pg';
 import { PG_POOL } from '../db/db.module';
 
@@ -16,7 +16,7 @@ interface EarnPointsInput {
 
 @Injectable()
 export class RewardsService {
-  constructor(private readonly pool: Pool) {}
+  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
 
   private tierFor(lifetimePoints: number): 'starter' | 'bronze' | 'silver' | 'gold' {
     if (lifetimePoints >= 50_000) return 'gold';
@@ -105,8 +105,8 @@ export class RewardsService {
     if (!input.idempotencyKey || input.idempotencyKey.length > 512) {
       throw new BadRequestException('Invalid reward idempotency key');
     }
-    if (input.expiresAt && Number.isNaN(input.expiresAt.getTime())) {
-      throw new BadRequestException('Invalid reward expiry date');
+    if (input.expiresAt && (Number.isNaN(input.expiresAt.getTime()) || input.expiresAt.getTime() <= Date.now())) {
+      throw new BadRequestException('Reward expiry must be a future date');
     }
     const fingerprint = this.fingerprint({
       userId: input.userId, points: input.points, reference: input.reference ?? null,
@@ -248,6 +248,7 @@ export class RewardsService {
         [safeLimit],
       );
       let pointsExpired = 0;
+      let lotsExpired = 0;
       for (const lot of due.rows) {
         const points = Number(lot.points_remaining);
         if (points <= 0) continue;
@@ -275,9 +276,10 @@ export class RewardsService {
             randomUUID(), expiry.id, points],
         );
         pointsExpired += points;
+        lotsExpired += 1;
       }
       await client.query('commit');
-      return { lotsExpired: due.rows.length, pointsExpired };
+      return { lotsExpired, pointsExpired };
     } catch (error) {
       await client.query('rollback').catch(() => undefined);
       throw error;
