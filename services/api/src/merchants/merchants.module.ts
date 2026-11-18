@@ -209,7 +209,7 @@ export class MerchantService {
   }
 
   async listInvitations(userId: string, merchantId: string) {
-    await this.membership(userId, merchantId);
+    await this.membership(userId, merchantId, ['owner','admin']);
     const result = await this.pool.query(
       `select i.id as "invitationId",i.invited_user_id as "invitedUserId",u.phone,i.role,
        case when i.status='pending' and i.expires_at<=now() then 'expired' else i.status end as status,
