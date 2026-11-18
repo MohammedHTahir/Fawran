@@ -12,7 +12,7 @@ export interface PaymentProvider {
 
 /** Dev-only mock. A card payment of exactly 1313 piasters is declined, to test failures. */
 export class MockProvider implements PaymentProvider {
-  async charge(r: { amount: number; method: PayMethod; reference: string }) {
+  async charge(r: { amount: number; currency?: string; method: PayMethod; reference: string }) {
     return { ok: !(r.method === 'card' && r.amount === 1313), providerRef: `mock_${r.reference}` };
   }
 }
