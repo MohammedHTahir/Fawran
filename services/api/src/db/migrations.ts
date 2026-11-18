@@ -614,6 +614,17 @@ alter table users add constraint users_country_currency_pair_check
  );
 create unique index if not exists users_phone_e164_unique on users(phone);
 `,
+  }, {
+    version: 12,
+    name: 'currency_specific_test_provider_accounts',
+    sql: `
+insert into accounts(id,kind,currency) values
+  ('sys:provider:AED','system','AED'),
+  ('sys:provider:SAR','system','SAR'),
+  ('sys:provider:GBP','system','GBP'),
+  ('sys:provider:USD','system','USD')
+on conflict(id) do nothing;
+`,
   },
 ] as const;
 
