@@ -384,6 +384,15 @@ create table admin_audit_events (
 );
 create index admin_audit_events_created_idx on admin_audit_events(created_at desc);
 `,
+  }, {
+    version: 9,
+    name: 'pgmem_multi_currency_payment_intent_constraint_compatibility',
+    sql: `
+-- pg-mem names an inline legacy EGP-only check payment_intents_constraint_2.
+-- PostgreSQL drops the explicitly named legacy constraint in migration 6;
+-- this IF EXISTS keeps production databases unchanged while aligning test schema behavior.
+alter table payment_intents drop constraint if exists payment_intents_constraint_2;
+`,
   },
 ] as const;
 
