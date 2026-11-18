@@ -29,7 +29,7 @@ export function normalizePhone(raw: string, countryCode = 'EG'): string {
   if (!market || !getMarketProfile(countryCode.trim().toUpperCase())) {
     throw new BadRequestException('Unsupported phone market');
   }
-  let digits = raw.trim().replace(/[\\s()-]/g, '');
+  let digits = raw.trim().replace(/[^0-9+]/g, '');
   if (digits.startsWith('+')) {
     digits = digits.slice(1);
     if (!digits.startsWith(market.dialCode)) throw new BadRequestException('Phone country prefix does not match selected market');
