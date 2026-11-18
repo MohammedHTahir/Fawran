@@ -99,7 +99,7 @@ describe('test refunds, payouts and settlement reconciliation', () => {
         { providerRef: matchedIntent.providerRef, lineType: 'charge', grossAmountMinor: 1000, feeAmountMinor: 10, netAmountMinor: 990, currency: 'AED' },
         { providerRef: 'test_unknown_reference_01', lineType: 'charge', grossAmountMinor: 600, feeAmountMinor: 0, netAmountMinor: 600, currency: 'AED' },
         { providerRef: mismatchIntent.providerRef, lineType: 'charge', grossAmountMinor: 1999, feeAmountMinor: 10, netAmountMinor: 1989, currency: 'AED' },
-        { providerRef: matchedIntent.providerRef, lineType: 'charge', grossAmountMinor: 1000, feeAmountMinor: 0, netAmountMinor: 1000, currency: 'EGP' },
+        { providerRef: 'test_unknown_reference_02', lineType: 'charge', grossAmountMinor: 1000, feeAmountMinor: 0, netAmountMinor: 1000, currency: 'EGP' },
         { providerRef: 'test_unknown_reference_01', lineType: 'charge', grossAmountMinor: 600, feeAmountMinor: 0, netAmountMinor: 600, currency: 'AED' },
       ],
     };
