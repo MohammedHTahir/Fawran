@@ -1,5 +1,5 @@
 import { Body, ConflictException, Controller, Get, HttpException, Inject, Injectable, Module,
-  NotFoundException, Param, Post, UseGuards } from '@nestjs/common';
+  NotFoundException, Param, Post, UseGuards, BadRequestException } from '@nestjs/common';
 import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { randomBytes, randomUUID } from 'crypto';
 import { ForbiddenException } from '@nestjs/common';
@@ -46,8 +46,9 @@ export class LinksService {
   /** Public: payer without an app/account pays via the provider; funds land in the merchant's wallet. */
   async pay(code: string, method: PayMethod) {
     const metadata = await this.pool.query(
-      `select l.id,l.currency,l.merchant_id,m.status as merchant_status,m.kyb_status,m.settlement_status
-       from payment_links l left join merchants m on m.id=l.merchant_id where l.code=$1`, [code]);
+      `select l.id,l.currency,l.merchant_id,m.status as merchant_status,m.kyb_status,ma.settlement_status
+       from payment_links l left join merchants m on m.id=l.merchant_id
+       left join merchant_accounts ma on ma.ledger_account_id=l.merchant_account where l.code=$1`, [code]);
     if (!metadata.rows[0]) throw new NotFoundException();
     if (metadata.rows[0].merchant_id &&
         (metadata.rows[0].merchant_status !== 'active' || metadata.rows[0].kyb_status !== 'approved')) {
