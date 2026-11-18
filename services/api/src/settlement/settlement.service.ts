@@ -62,9 +62,9 @@ export class SettlementService {
       const refundId = randomUUID();
       const providerRef = 'test_refund_' + createHash('sha256').update(refundId).digest('hex').slice(0, 24);
       await client.query(
-        `insert into payment_refunds(id,payment_intent_id,user_id,amount,currency,idempotency_key,request_fingerprint,status,provider_name,provider_ref)
-         values($1,$2,$3,$4,$5,$6,$7,'created','test',$8)`,
-        [refundId, input.paymentIntentId, userId, input.amountMinor, input.currency, idem, fingerprint, providerRef],
+        `insert into payment_refunds(id,payment_intent_id,user_id,amount,currency,reason,idempotency_key,request_fingerprint,status,provider_name,provider_ref)
+         values($1,$2,$3,$4,$5,$6,$7,$8,'created','test',$9)`,
+        [refundId, input.paymentIntentId, userId, input.amountMinor, input.currency, input.reason.trim(), idem, fingerprint, providerRef],
       );
       await client.query('commit');
       return { refundId, status: 'created', amountMinor: input.amountMinor, currency: input.currency,
