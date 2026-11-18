@@ -7,7 +7,7 @@ export type PayMethod = 'instapay' | 'card' | 'wallet';
  * charges by `reference` across retries and expose signed webhooks/reconciliation.
  * The method labels here are product categories, not direct InstaPay integrations. */
 export interface PaymentProvider {
-  charge(r: { amount: number; method: PayMethod; reference: string }): Promise<{ ok: boolean; providerRef: string }>;
+  charge(r: { amount: number; currency?: string; method: PayMethod; reference: string }): Promise<{ ok: boolean; providerRef: string }>;
 }
 
 /** Dev-only mock. A card payment of exactly 1313 piasters is declined, to test failures. */
