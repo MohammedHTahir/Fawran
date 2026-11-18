@@ -1,6 +1,6 @@
 # Fawran
 
-Egypt-first wallet and merchant payments prototype. The repository contains a React Native + Expo mobile app and a NestJS API backed by PostgreSQL.
+Multi-market wallet, rewards and merchant-payments prototype. The repository contains a React Native + Expo mobile app and a NestJS API backed by PostgreSQL.
 
 > **Important:** This is a development prototype, not a licensed wallet, payment institution, bank, or live payment service. Payment processing is mocked and production SMS delivery is intentionally unconfigured. Do not use real customer funds or production personal data until the legal, regulatory, licensed-partner, security, and operational gates in `docs/PRODUCTION_READINESS.md` are complete.
 
