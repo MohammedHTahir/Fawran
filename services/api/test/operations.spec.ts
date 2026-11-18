@@ -69,7 +69,7 @@ describe('multi-market operations controls', () => {
     expect(created.body).toMatchObject({ countryCode: 'AE', category: 'aml', severity: 'high', status: 'open' });
 
     const queue = await request(app.getHttpServer()).get('/admin/risk-cases?status=open').set(auth(supportAdminToken)).expect(200);
-    expect(queue.some((item: any) => item.id === created.body.id)).toBe(true);
+    expect(queue.body.some((item: any) => item.id === created.body.id)).toBe(true);
 
     await request(app.getHttpServer()).post(`/admin/risk-cases/${created.body.id}/decision`)
       .set(auth(supportAdminToken)).send({ status: 'resolved', note: 'Reviewed test case; no real customer funds involved.' }).expect(201);
