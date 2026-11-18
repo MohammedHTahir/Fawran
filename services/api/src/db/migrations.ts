@@ -545,65 +545,7 @@ alter table users add column if not exists country_code text not null default 'E
 alter table users add column if not exists default_currency text not null default 'EGP';
 -- Existing Egyptian national-format numbers are normalized to E.164 in place.
 update users set phone = '+20' || substring(phone from 2)
- where phone ~ '^01[0125][0-9]{8}
-export async function runMigrations(pool: Pool): Promise<{ applied: number[]; current: number }> {
-  await pool.query(`create table if not exists schema_migrations (
-    version integer primary key, name text not null, applied_at timestamptz not null default now()
-  )`);
-  const applied: number[] = [];
-  for (const migration of MIGRATIONS) {
-    const existing = await pool.query('select version from schema_migrations where version=$1', [migration.version]);
-    if (existing.rows.length) continue;
-    const client = await pool.connect();
-    try {
-      await client.query('begin');
-      const check = await client.query('select version from schema_migrations where version=$1', [migration.version]);
-      if (!check.rows.length) {
-        await client.query(migration.sql);
-        for (const constraint of INTEGRITY_CONSTRAINTS) {
-          const present = await client.query(
-            'select constraint_name from information_schema.table_constraints where table_name = $1 and constraint_name = $2',
-            [constraint.table, constraint.name],
-          );
-          if (!present.rows.length) {
-            try {
-              await client.query(constraint.sql);
-            } catch (error) {
-              // pg-mem can omit already-installed constraints from its
-              // information_schema view. Ignore only a duplicate of this
-              // exact named constraint; all other migration errors fail closed.
-              const message = error instanceof Error ? error.message : String(error);
-              if (!message.includes(constraint.name) || !/already exists|duplicate/i.test(message)) throw error;
-            }
-          }
-        }
-        await client.query('insert into schema_migrations(version,name) values($1,$2)', [migration.version, migration.name]);
-        applied.push(migration.version);
-      }
-      await client.query('commit');
-    } catch (error) {
-      await client.query('rollback').catch(() => undefined);
-      throw error;
-    } finally { client.release(); }
-  }
-  const result = await pool.query('select coalesce(max(version),0)::int as version from schema_migrations');
-  return { applied, current: Number(result.rows[0]?.version ?? 0) };
-}
-
-export async function assertMigrationsCurrent(pool: Pool): Promise<void> {
-  const expected = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;
-  let current = 0;
-  try {
-    const result = await pool.query('select coalesce(max(version),0)::int as version from schema_migrations');
-    current = Number(result.rows[0]?.version ?? 0);
-  } catch {
-    throw new Error('Database migrations are missing. Run npm run db:migrate before starting the API.');
-  }
-  if (current !== expected) {
-    throw new Error(`Database schema is at migration ${current}; expected ${expected}. Run npm run db:migrate before starting the API.`);
-  }
-}
-;
+ where phone ~ '^01[0125][0-9]{8}$';
 alter table users add constraint users_country_currency_pair_check
  check (
    (country_code='AE' and default_currency='AED') or
@@ -652,9 +594,6 @@ export async function runMigrations(pool: Pool): Promise<{ applied: number[]; cu
             try {
               await client.query(constraint.sql);
             } catch (error) {
-              // pg-mem can omit already-installed constraints from its
-              // information_schema view. Ignore only a duplicate of this
-              // exact named constraint; all other migration errors fail closed.
               const message = error instanceof Error ? error.message : String(error);
               if (!message.includes(constraint.name) || !/already exists|duplicate/i.test(message)) throw error;
             }
