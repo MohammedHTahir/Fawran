@@ -105,9 +105,19 @@ For each market independently:
 - Never net different currencies without an explicit FX transaction and accounting trail.
 - Keep test balances and production funds completely separated.
 
-## Current implementation reality
+## Current implementation reality (18 November 2026)
 
-The current app remains an EGP-first prototype, but the multi-currency runtime foundation is now being implemented: wallet accounts carry currency, per-user currency wallets are supported, PostgreSQL transfers enforce same-currency movement, transaction history records currency, payment-intent records accept currency, and Blnk configuration is separated by currency. The migration preserves existing EGP balances without conversion. The mobile app, country-aware onboarding, payment links, test-provider flows and operational tooling still need currency/market support. This work does not make Fawran production-ready.
+The repository now has a multi-market test foundation, merged to `main`:
+
+- **Markets and wallets:** AE/AED, EG/EGP, SA/SAR, GB/GBP and US/USD are catalogued. New test users can onboard with market-specific phone formats stored as E.164 and receive a default-currency wallet. Existing Egyptian users are migrated to E.164 and retain EGP. Additional currency wallets are separate accounts; currency is immutable per account and transfers remain same-currency only.
+- **Mobile:** market selection at OTP onboarding, recipient-country selection for phone transfers, currency wallet selection and currency-aware personal payment links. The customer app is not yet a complete multi-market banking experience.
+- **Rewards and merchants:** backend foundations exist for a separate points ledger, campaigns/referrals/tiers, merchant registration, KYB, business accounts, offers and merchant payment links. Full merchant and rewards management interfaces still need work.
+- **Payments:** test payment intents, signed/deduplicated test webhooks, idempotent test refunds, blocked payout requests and finance-admin settlement reconciliation. Personal links can use isolated simulated provider accounts by currency. Merchant checkout and settlement remain blocked.
+- **FX:** synthetic, admin-configured test rates can produce five-minute preview quotes using integer arithmetic. There is no FX execution endpoint, live rate source or ledger conversion.
+- **Operations:** support cases, compliance risk cases, role-scoped admin APIs, audit history and maker-checker market evidence gates are available. These are workflow controls, not local legal or regulatory determinations.
+- **Safety:** all markets still return `realMoneyEnabled: false`. Test rates, test provider flows, successful CI, Blnk sandbox integration or verified evidence gates cannot activate live money movement.
+
+This is a meaningful backend and mobile foundation, not a production-ready wallet or licensed financial service. Remaining work includes licensed PSP/bank adapters, live signed webhooks, real refunds/payouts/settlement formats, jurisdiction-specific KYC/AML and consumer-protection rules, merchant/rewards user interfaces, QR/invoice flows, localization, security review, operational runbooks and written approvals for each launch market.
 
 ## Exit criteria for any live market
 

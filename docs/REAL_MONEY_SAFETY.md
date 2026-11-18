@@ -26,7 +26,7 @@ Production deployments must fail closed when a live provider, signed webhook ver
 
 ## Current market registry
 
-The API market registry is a planning catalog only. It deliberately reports production payments disabled and its real-money policy always returns false. Adding a country to the catalog does not enable onboarding or payments in that country.
+The API market registry is a planning catalog for test onboarding and currency defaults. It deliberately reports production payments disabled and its real-money policy always returns false. Adding a country to the catalog can enable test-only onboarding, but never enables live payments, cash-in/out, merchant settlement or FX execution.
 
 ## Incident rule
 
