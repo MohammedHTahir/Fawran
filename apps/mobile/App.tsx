@@ -13,6 +13,9 @@ const MARKETS: {code:MarketCode;label:string;currency:string}[] = [
 type Tx = { id: string; kind: string; amount: number; currency?: string; createdAt: string; memo?: string | null };
 type WalletSummary = { accountId:string; currency:string; balance:number; unit:string; createdAt:string };
 type AuthSession = { id:string; created_at:string; last_used_at:string|null; expires_at:string; is_current:boolean };
+type RewardSummary = { unit:string; pointsBalance:number; lifetimeEarnedPoints:number; tier:string; referralCode:string; history:Array<{id:string;kind:string;points:number;reference?:string|null;createdAt:string;expiresAt?:string|null}> };
+type MerchantSummary = { id:string; display_name:string; country_code:string; currency:string; kyb_status:string; status:string; role:string };
+type MerchantDetails = { merchantId:string; legalName:string; displayName:string; countryCode:string; currency:string; kybStatus:string; status:string; role:string; paymentsEnabled:boolean; accounts:Array<{currency:string;balance:number;settlementStatus:string}> };
 type ApiError = Error & { status: number };
 const API = (process.env.EXPO_PUBLIC_API_URL || 'http://10.0.2.2:3000').replace(/\/$/, '');
 const C = { teal: '#08665D', tealDeep: '#064B45', lime: '#DDF477', ink: '#152824', muted: '#71817B', bg: '#F5F8F6', white: '#FFFFFF', line: '#E6EDE9', pale: '#EDF6F2', red: '#B93838', soft: '#D8E9E2' };
@@ -130,10 +133,17 @@ const errorText = (e:unknown,w:typeof T.en) => {
 
 export default function App() {
   const [lang,setLang] = useState<Lang>('ar'), [token,setToken] = useState<string|null>(null), [phone,setPhone] = useState(''), [otp,setOtp] = useState(''), [otpSent,setOtpSent] = useState(false), [countryCode,setCountryCode] = useState<MarketCode>('EG'), [recipientCountryCode,setRecipientCountryCode] = useState<MarketCode>('EG');
-  const [balance,setBalance] = useState(0), [balanceVisible,setBalanceVisible] = useState(true), [tx,setTx] = useState<Tx[]>([]), [currency,setCurrency] = useState('EGP'), [wallets,setWallets] = useState<WalletSummary[]>([]), [sessions,setSessions] = useState<AuthSession[]>([]), [tab,setTab] = useState<'home'|'activity'|'account'>('home'), [activityFilter,setActivityFilter] = useState<'all'|'in'|'out'>('all'), [activitySearch,setActivitySearch] = useState(''), [page,setPage] = useState<'tabs'|'send'|'link'|'receipt'|'transaction'>('tabs'), [selectedTx,setSelectedTx] = useState<Tx|null>(null);
+  const [balance,setBalance] = useState(0), [balanceVisible,setBalanceVisible] = useState(true), [tx,setTx] = useState<Tx[]>([]), [currency,setCurrency] = useState('EGP'), [wallets,setWallets] = useState<WalletSummary[]>([]), [sessions,setSessions] = useState<AuthSession[]>([]), [tab,setTab] = useState<'home'|'activity'|'account'>('home'), [activityFilter,setActivityFilter] = useState<'all'|'in'|'out'>('all'), [activitySearch,setActivitySearch] = useState(''), [page,setPage] = useState<'tabs'|'send'|'link'|'receipt'|'transaction'|'rewards'|'business'>('tabs'), [selectedTx,setSelectedTx] = useState<Tx|null>(null);
   const [busy,setBusy] = useState(false), [refreshing,setRefreshing] = useState(false), [topup,setTopup] = useState(false), [amount,setAmount] = useState(''), [method,setMethod] = useState('instapay');
   const [to,setTo] = useState(''), [note,setNote] = useState(''), [linkAmount,setLinkAmount] = useState(''), [description,setDescription] = useState(''), [linkCode,setLinkCode] = useState('');
   const [receipt,setReceipt] = useState<{amount:number;currency:string;to:string;at:string}|null>(null);
+  const [rewards,setRewards] = useState<RewardSummary|null>(null), [referralInput,setReferralInput] = useState('');
+  const [merchants,setMerchants] = useState<MerchantSummary[]>([]), [activeMerchant,setActiveMerchant] = useState<MerchantDetails|null>(null);
+  const [merchantOffers,setMerchantOffers] = useState<any[]>([]), [merchantCampaigns,setMerchantCampaigns] = useState<any[]>([]);
+  const [merchantLegalName,setMerchantLegalName] = useState(''), [merchantDisplayName,setMerchantDisplayName] = useState('');
+  const [registrationNumber,setRegistrationNumber] = useState(''), [merchantLinkAmount,setMerchantLinkAmount] = useState('');
+  const [merchantOfferName,setMerchantOfferName] = useState(''), [merchantCampaignName,setMerchantCampaignName] = useState('');
+  const [merchantCampaignBudget,setMerchantCampaignBudget] = useState(''), [merchantLinkCode,setMerchantLinkCode] = useState('');
   const topupAttempt = useRef<{fp:string;key:string}|null>(null), transferAttempt = useRef<{fp:string;key:string}|null>(null);
   const w = T[lang], rtl = lang === 'ar';
   const monthTx = tx.filter(x=>{const d=new Date(x.createdAt),now=new Date();return d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth();});
@@ -142,8 +152,95 @@ export default function App() {
   const activityTx = tx.filter(x=>(activityFilter==='all'||(activityFilter==='in'?x.amount>=0:x.amount<0))&&(!activitySearch.trim()||[x.kind,x.memo||''].join(' ').toLocaleLowerCase().includes(activitySearch.trim().toLocaleLowerCase())));
   useEffect(() => { onAuthExpired = () => { setToken(null); setBalance(0); setTx([]); setPage('tabs'); }; return () => { onAuthExpired = null; }; }, []);
   useEffect(() => { (async()=>{ const [l,t,p,cc,cur,defaultCur] = await Promise.all([SecureStore.getItemAsync('fawran.lang'),SecureStore.getItemAsync('fawran.token'),SecureStore.getItemAsync('fawran.phone'),SecureStore.getItemAsync('fawran.countryCode'),SecureStore.getItemAsync('fawran.currency'),SecureStore.getItemAsync('fawran.defaultCurrency')]); if(l==='ar'||l==='en')setLang(l); if(cc&&['AE','EG','SA','GB','US'].includes(cc)){setCountryCode(cc as MarketCode);setRecipientCountryCode(cc as MarketCode);} if(cur&&['AED','EGP','SAR','GBP','USD'].includes(cur))setCurrency(cur); else if(defaultCur&&['AED','EGP','SAR','GBP','USD'].includes(defaultCur))setCurrency(defaultCur); if(t){accessTokenCache=t;setToken(t);setPhone(p||'');} })(); }, []);
-  const refresh = async () => { if(!token)return; setRefreshing(true); try { const [a,b,s,ws] = await Promise.all([api<{balance:number}>('/wallet?currency='+encodeURIComponent(currency),token),api<Tx[]>('/transactions?currency='+encodeURIComponent(currency),token),api<AuthSession[]>('/auth/sessions',token),api<WalletSummary[]>('/wallets',token)]); setBalance(a.balance);setTx(b);setSessions(s);setWallets(ws); } catch(e) { if((e as ApiError).status===401){await SecureStore.deleteItemAsync('fawran.token');await SecureStore.deleteItemAsync('fawran.refreshToken');accessTokenCache=null;setToken(null);setBalance(0);setTx([]);setWallets([]);setSessions([]);} else Alert.alert(w.generic,errorText(e,w)); } finally {setRefreshing(false);} };
+  const refresh = async () => { if(!token)return; setRefreshing(true); try { const [a,b,s,ws,r,m] = await Promise.all([api<{balance:number}>('/wallet?currency='+encodeURIComponent(currency),token),api<Tx[]>('/transactions?currency='+encodeURIComponent(currency),token),api<AuthSession[]>('/auth/sessions',token),api<WalletSummary[]>('/wallets',token),api<RewardSummary>('/rewards',token),api<MerchantSummary[]>('/merchants/me',token)]); setBalance(a.balance);setTx(b);setSessions(s);setWallets(ws);setRewards(r);setMerchants(m); } catch(e) { if((e as ApiError).status===401){await SecureStore.deleteItemAsync('fawran.token');await SecureStore.deleteItemAsync('fawran.refreshToken');accessTokenCache=null;setToken(null);setBalance(0);setTx([]);setWallets([]);setSessions([]);setRewards(null);setMerchants([]);setActiveMerchant(null);} else Alert.alert(w.generic,errorText(e,w)); } finally {setRefreshing(false);} };
   useEffect(()=>{if(token)void refresh();},[token,currency]);
+  const loadMerchant = async (id:string) => {
+    if(!token)return;
+    setBusy(true);
+    try {
+      const [details,offers,campaigns] = await Promise.all([
+        api<MerchantDetails>('/merchants/'+id,token),
+        api<any[]>('/merchants/'+id+'/offers',token),
+        api<any[]>('/merchants/'+id+'/campaigns',token)
+      ]);
+      setActiveMerchant(details);setMerchantOffers(offers);setMerchantCampaigns(campaigns);
+    } catch(e) { Alert.alert(w.generic,errorText(e,w)); }
+    finally { setBusy(false); }
+  };
+  const openBusiness = () => { setPage('business'); if(merchants[0])void loadMerchant(merchants[0].id); };
+  const createMerchant = async () => {
+    if(!merchantLegalName.trim()||!merchantDisplayName.trim()){Alert.alert(w.invalidRequest);return;}
+    const market=MARKETS.find(m=>m.code===countryCode)!;
+    setBusy(true);
+    try {
+      const created=await api<{merchantId:string}>('/merchants',token,'POST',{
+        legalName:merchantLegalName.trim(),displayName:merchantDisplayName.trim(),
+        countryCode:market.code,currency:market.currency
+      });
+      setMerchantLegalName('');setMerchantDisplayName('');
+      const list=await api<MerchantSummary[]>('/merchants/me',token);
+      setMerchants(list);await loadMerchant(created.merchantId);
+    } catch(e) { Alert.alert(w.generic,errorText(e,w)); }
+    finally { setBusy(false); }
+  };
+  const submitKyb = async () => {
+    if(!activeMerchant||registrationNumber.trim().length<2){Alert.alert(w.invalidRequest);return;}
+    setBusy(true);
+    try {
+      await api('/merchants/'+activeMerchant.merchantId+'/kyb/submit',token,'POST',{
+        registrationNumber:registrationNumber.trim(),
+        documentTypes:['trade_license','beneficial_owner_id','proof_of_address']
+      });
+      setRegistrationNumber('');await loadMerchant(activeMerchant.merchantId);await refresh();
+    } catch(e) { Alert.alert(w.generic,errorText(e,w)); }
+    finally { setBusy(false); }
+  };
+  const createMerchantAccount = async () => {
+    if(!activeMerchant)return;
+    setBusy(true);
+    try { await api('/merchants/'+activeMerchant.merchantId+'/accounts',token,'POST',{currency});await loadMerchant(activeMerchant.merchantId); }
+    catch(e){Alert.alert(w.generic,errorText(e,w));}
+    finally{setBusy(false);}
+  };
+  const createMerchantPaymentLink = async () => {
+    if(!activeMerchant)return;
+    const n=parseMoney(merchantLinkAmount);if(!n){Alert.alert(w.invalidAmount);return;}
+    setBusy(true);
+    try {
+      const result=await api<{code:string;checkoutPath:string;qrPayload:string}>('/merchants/'+activeMerchant.merchantId+'/payment-links',token,'POST',{
+        amount:n,currency:activeMerchant.currency,description:'Merchant checkout'
+      });
+      setMerchantLinkCode(result.code);
+      await Clipboard.setStringAsync(result.checkoutPath);
+      Alert.alert(w.ready,result.checkoutPath+'\n'+w.copied);
+      setMerchantLinkAmount('');
+    } catch(e){Alert.alert(w.generic,errorText(e,w));}
+    finally{setBusy(false);}
+  };
+  const createMerchantOffer = async () => {
+    if(!activeMerchant||!merchantOfferName.trim())return;
+    setBusy(true);
+    try { await api('/merchants/'+activeMerchant.merchantId+'/offers',token,'POST',{name:merchantOfferName.trim()});setMerchantOfferName('');await loadMerchant(activeMerchant.merchantId); }
+    catch(e){Alert.alert(w.generic,errorText(e,w));}
+    finally{setBusy(false);}
+  };
+  const createMerchantCampaign = async () => {
+    if(!activeMerchant||!merchantCampaignName.trim())return;
+    const budget=parseMoney(merchantCampaignBudget);if(!budget){Alert.alert(w.invalidAmount);return;}
+    setBusy(true);
+    try { await api('/merchants/'+activeMerchant.merchantId+'/campaigns',token,'POST',{
+      name:merchantCampaignName.trim(),currency:activeMerchant.currency,budgetMinor:budget,pointsPerMinor:1
+    });setMerchantCampaignName('');setMerchantCampaignBudget('');await loadMerchant(activeMerchant.merchantId); }
+    catch(e){Alert.alert(w.generic,errorText(e,w));}
+    finally{setBusy(false);}
+  };
+  const claimReferral = async () => {
+    const code=referralInput.trim().toUpperCase();if(!/^[A-F0-9]{16}$/.test(code)){Alert.alert(w.invalidRequest);return;}
+    setBusy(true);
+    try { await api('/rewards/referrals/claim',token,'POST',{code});setReferralInput('');await refresh();Alert.alert(w.copied); }
+    catch(e){Alert.alert(w.generic,errorText(e,w));}
+    finally{setBusy(false);}
+  };
   const createCurrencyWallet = async (code:string) => { if(wallets.some(x=>x.currency===code)){setCurrency(code);await SecureStore.setItemAsync('fawran.currency',code);return;} setBusy(true); try { await api('/wallets',token,'POST',{currency:code}); setCurrency(code);await SecureStore.setItemAsync('fawran.currency',code); } catch(e) { Alert.alert(w.generic,errorText(e,w)); } finally { setBusy(false); } };
   const setLanguage = async (l:Lang) => {setLang(l);await SecureStore.setItemAsync('fawran.lang',l);};
   const login = async () => { if(!validPhone(phone,countryCode)){Alert.alert(w.invalidPhone);return;} setBusy(true); try { if(!otpSent){await api('/auth/otp',null,'POST',{phone:phone.trim(),countryCode});setOtpSent(true);} else {const r=await api<{token:string;refreshToken:string;countryCode:MarketCode;defaultCurrency:string}>('/auth/verify',null,'POST',{phone:phone.trim(),code:otp,countryCode});accessTokenCache=r.token;setCountryCode(r.countryCode);setRecipientCountryCode(r.countryCode);setCurrency(r.defaultCurrency);await Promise.all([SecureStore.setItemAsync('fawran.token',r.token),SecureStore.setItemAsync('fawran.refreshToken',r.refreshToken),SecureStore.setItemAsync('fawran.phone',phone.trim()),SecureStore.setItemAsync('fawran.countryCode',r.countryCode),SecureStore.setItemAsync('fawran.defaultCurrency',r.defaultCurrency),SecureStore.setItemAsync('fawran.currency',r.defaultCurrency)]);setToken(r.token);} } catch(e){Alert.alert(w.generic,errorText(e,w));} finally{setBusy(false);} };
