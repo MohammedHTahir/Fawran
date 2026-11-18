@@ -32,12 +32,36 @@ export interface RecordProviderEventInput {
 export class PaymentIntentStore {
   constructor(private readonly pool: Pool) {}
 
+  private assertIntentReplayMatches(row: Record<string, any> | undefined, input: CreatePaymentIntentInput, currency: string) {
+    if (!row || row.request_fingerprint !== input.requestFingerprint ||
+        Number(row.amount) !== input.amount || (row.currency ?? 'EGP') !== currency || row.method !== input.method ||
+        (row.user_id ?? null) !== (input.userId ?? null)) {
+      throw new ConflictException('Idempotency key was already used for a different payment intent');
+    }
+    return this.normalize(row);
+  }
+
+  private async findIntentByIdempotencyKey(key: string) {
+    const result = await this.pool.query(
+      `select id, reference, idempotency_key, user_id, amount, currency, method, status,
+              provider_name, provider_ref, ledger_txn_id, request_fingerprint, created_at, updated_at
+         from payment_intents where idempotency_key=$1`, [key],
+    );
+    return result.rows[0] as Record<string, any> | undefined;
+  }
+
   async create(input: CreatePaymentIntentInput) {
     const currency = (input.currency ?? 'EGP').trim().toUpperCase();
     if (!getMarketByCurrency(currency)) throw new ConflictException('Payment intent currency is not in the supported market catalog');
     if (!Number.isSafeInteger(input.amount) || input.amount <= 0) {
       throw new ConflictException('Payment intent amount must be a positive integer number of currency minor units');
     }
+
+    // Check before insert as well as relying on the unique constraint. This makes
+    // sequential idempotent retries deterministic across PostgreSQL and pg-mem.
+    const existingBeforeInsert = await this.findIntentByIdempotencyKey(input.idempotencyKey);
+    if (existingBeforeInsert) return this.assertIntentReplayMatches(existingBeforeInsert, input, currency);
+
     const inserted = await this.pool.query(
       `insert into payment_intents
         (id, reference, idempotency_key, user_id, amount, currency, method, request_fingerprint, expires_at)
@@ -50,19 +74,8 @@ export class PaymentIntentStore {
     );
     if (inserted.rows[0]) return this.normalize(inserted.rows[0]);
 
-    const existing = await this.pool.query(
-      `select id, reference, idempotency_key, user_id, amount, currency, method, status,
-              provider_name, provider_ref, ledger_txn_id, request_fingerprint, created_at, updated_at
-         from payment_intents where idempotency_key=$1`,
-      [input.idempotencyKey],
-    );
-    const row = existing.rows[0];
-    if (!row || row.request_fingerprint !== input.requestFingerprint ||
-        Number(row.amount) !== input.amount || (row.currency ?? 'EGP') !== currency || row.method !== input.method ||
-        (row.user_id ?? null) !== (input.userId ?? null)) {
-      throw new ConflictException('Idempotency key was already used for a different payment intent');
-    }
-    return this.normalize(row);
+    const raced = await this.findIntentByIdempotencyKey(input.idempotencyKey);
+    return this.assertIntentReplayMatches(raced, input, currency);
   }
 
   async get(id: string) {
@@ -91,6 +104,22 @@ export class PaymentIntentStore {
     if (!/^[a-f0-9]{64}$/i.test(input.payloadSha256)) {
       throw new ConflictException('Provider event payload digest must be a SHA-256 hex digest');
     }
+    const findExisting = async () => this.pool.query(
+      'select id, payload_sha256 from provider_events where provider_name=$1 and provider_event_id=$2',
+      [input.providerName, input.providerEventId],
+    );
+    const assertReplay = (row: Record<string, any>) => {
+      try {
+        assertProviderEventReplayMatches(row.payload_sha256, input.payloadSha256);
+      } catch {
+        throw new ConflictException('Provider event ID was replayed with a different payload');
+      }
+      return { inserted: false, eventId: String(row.id) };
+    };
+
+    const existingBeforeInsert = await findExisting();
+    if (existingBeforeInsert.rows[0]) return assertReplay(existingBeforeInsert.rows[0]);
+
     const id = randomUUID();
     const inserted = await this.pool.query(
       `insert into provider_events
@@ -103,17 +132,9 @@ export class PaymentIntentStore {
     );
     if (inserted.rows[0]) return { inserted: true, eventId: id };
 
-    const existing = await this.pool.query(
-      'select id, payload_sha256 from provider_events where provider_name=$1 and provider_event_id=$2',
-      [input.providerName, input.providerEventId],
-    );
-    if (!existing.rows[0]) throw new ConflictException('Provider event could not be recorded safely');
-    try {
-      assertProviderEventReplayMatches(existing.rows[0].payload_sha256, input.payloadSha256);
-    } catch {
-      throw new ConflictException('Provider event ID was replayed with a different payload');
-    }
-    return { inserted: false, eventId: existing.rows[0].id };
+    const raced = await findExisting();
+    if (!raced.rows[0]) throw new ConflictException('Provider event could not be recorded safely');
+    return assertReplay(raced.rows[0]);
   }
 
   async markProviderEventProcessed(eventId: string) {
