@@ -57,7 +57,7 @@ export class PaymentIntentStore {
       [input.idempotencyKey],
     );
     const row = existing.rows[0];
-    if (!row || row.reference !== input.reference || row.request_fingerprint !== input.requestFingerprint ||
+    if (!row || row.request_fingerprint !== input.requestFingerprint ||
         Number(row.amount) !== input.amount || (row.currency ?? 'EGP') !== currency || row.method !== input.method ||
         (row.user_id ?? null) !== (input.userId ?? null)) {
       throw new ConflictException('Idempotency key was already used for a different payment intent');
