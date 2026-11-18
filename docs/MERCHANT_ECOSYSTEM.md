@@ -16,6 +16,11 @@ Status: merchant onboarding and KYB workflow foundation implemented. Merchant se
 - `POST /merchants` — register a business.
 - `GET /merchants/me` — list the user's merchant memberships.
 - `GET /merchants/:id/members` — list members and their merchant-scoped roles.
+- `POST /merchants/:id/invitations` — invite an existing Fawran user by E.164 phone number.
+- `GET /merchants/:id/invitations` — list merchant invitations (owner/admin).
+- `DELETE /merchants/:id/invitations/:invitationId` — revoke a pending invitation.
+- `GET /merchant-invitations/me` — list invitations for the authenticated user.
+- `POST /merchant-invitations/:id/accept` — accept an invitation addressed to the authenticated user.
 - `PATCH /merchants/:id/members/:userId/role` — update a member's role.
 - `DELETE /merchants/:id/members/:userId` — remove a member.
 - `GET /merchants/:id` — merchant profile and business account balances.
