@@ -476,6 +476,67 @@ create table reconciliation_exceptions (
 );
 create index reconciliation_exceptions_status_idx on reconciliation_exceptions(status,created_at desc);
 `,
+  }, {
+    version: 10,
+    name: 'multi_market_risk_support_and_readiness_operations',
+    sql: `
+create table risk_cases (
+  id text primary key,
+  country_code text not null,
+  category text not null check (category in ('fraud','aml','sanctions','account_takeover','transaction_anomaly','merchant_risk','other')),
+  severity text not null check (severity in ('low','medium','high','critical')),
+  status text not null default 'open' check (status in ('open','under_review','resolved','false_positive')),
+  user_id text references users(id) on delete restrict,
+  merchant_id text references merchants(id) on delete restrict,
+  payment_intent_id text references payment_intents(id) on delete restrict,
+  summary text not null,
+  details jsonb not null default '{}'::jsonb,
+  created_by text not null references users(id) on delete restrict,
+  assigned_to text references users(id) on delete restrict,
+  resolution_note text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  resolved_at timestamptz
+);
+create index risk_cases_queue_idx on risk_cases(status,severity,created_at desc);
+create index risk_cases_user_idx on risk_cases(user_id,created_at desc);
+
+create table support_cases (
+  id text primary key,
+  user_id text not null references users(id) on delete restrict,
+  category text not null check (category in ('general','account','payment','merchant','security','other')),
+  subject text not null,
+  description text not null,
+  priority text not null default 'normal' check (priority in ('low','normal','high','urgent')),
+  status text not null default 'open' check (status in ('open','in_progress','waiting_customer','resolved','closed')),
+  assigned_to text references users(id) on delete restrict,
+  resolution_note text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  resolved_at timestamptz
+);
+create index support_cases_queue_idx on support_cases(status,priority,created_at desc);
+create index support_cases_user_idx on support_cases(user_id,created_at desc);
+
+create table market_gate_reviews (
+  country_code text not null,
+  currency text not null check (currency in ('AED','EGP','SAR','GBP','USD')),
+  gate_key text not null check (gate_key in ('legal_opinion','regulatory_permission','licensed_partner','kyc_aml_controls','security_assessment','settlement_reconciliation','support_readiness','customer_disclosures')),
+  status text not null default 'not_started' check (status in ('not_started','in_progress','blocked','verified')),
+  evidence_reference text,
+  submission_note text,
+  submitted_by text references users(id) on delete restrict,
+  submitted_at timestamptz,
+  approved_by text references users(id) on delete restrict,
+  approval_note text,
+  approved_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key(country_code,gate_key),
+  check (status <> 'verified' or (evidence_reference is not null and submitted_by is not null and approved_by is not null and approved_at is not null))
+);
+create index market_gate_reviews_status_idx on market_gate_reviews(country_code,status);
+`,
   },
 ] as const;
 
