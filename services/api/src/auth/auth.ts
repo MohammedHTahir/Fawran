@@ -1,10 +1,11 @@
 import { BadRequestException, CanActivate, ExecutionContext, Inject, Injectable, Module, UnauthorizedException, HttpException, HttpStatus,
   Body, Controller, Post, Req, Get, Delete, Param, UseGuards, createParamDecorator } from '@nestjs/common';
-import { IsString, Matches, MinLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, Matches, MinLength } from 'class-validator';
 import { createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'crypto';
 import * as jwt from 'jsonwebtoken';
 import { Pool } from 'pg';
 import { PG_POOL } from '../db/db.module';
+import { getMarketProfile } from '../markets/market-registry';
 
 const secret = () => {
   const value = process.env.JWT_SECRET;
@@ -14,13 +15,33 @@ const secret = () => {
   return value ?? 'dev-only-secret-change-before-deployment';
 };
 
-/** Accepts 01xxxxxxxxx, +201xxxxxxxxx, 00201xxxxxxxxx; returns 01xxxxxxxxx. */
-export function normalizePhone(raw: string): string {
-  let p = raw.replace(/[\s-]/g, '');
-  if (p.startsWith('+20')) p = '0' + p.slice(3);
-  else if (p.startsWith('0020')) p = '0' + p.slice(4);
-  if (!/^01[0125][0-9]{8}$/.test(p)) throw new BadRequestException('Invalid Egyptian mobile number');
-  return p;
+/** Normalize a national or international mobile number to E.164 for a supported market. */
+const PHONE_MARKETS: Record<string, { dialCode: string; nationalPattern: RegExp; localZero: boolean }> = {
+  EG: { dialCode: '20', nationalPattern: /^1[0125][0-9]{8}$/, localZero: true },
+  AE: { dialCode: '971', nationalPattern: /^5[0-9]{8}$/, localZero: true },
+  SA: { dialCode: '966', nationalPattern: /^5[0-9]{8}$/, localZero: true },
+  GB: { dialCode: '44', nationalPattern: /^7[0-9]{9}$/, localZero: true },
+  US: { dialCode: '1', nationalPattern: /^[2-9][0-9]{9}$/, localZero: false },
+};
+
+export function normalizePhone(raw: string, countryCode = 'EG'): string {
+  const market = PHONE_MARKETS[countryCode.trim().toUpperCase()];
+  if (!market) throw new BadRequestException('Unsupported phone country');
+  const value = raw.trim().replace(/[\s()-]/g, '');
+  let national = value;
+  if (value.startsWith('+')) {
+    const digits = value.slice(1);
+    if (!digits.startsWith(market.dialCode)) throw new BadRequestException('Phone country prefix does not match selected market');
+    national = digits.slice(market.dialCode.length);
+  } else if (value.startsWith('00')) {
+    const digits = value.slice(2);
+    if (!digits.startsWith(market.dialCode)) throw new BadRequestException('Phone country prefix does not match selected market');
+    national = digits.slice(market.dialCode.length);
+  }
+  national = national.replace(/[^0-9]/g, '');
+  if (market.localZero && national.startsWith('0')) national = national.slice(1);
+  if (!market.nationalPattern.test(national)) throw new BadRequestException('Invalid mobile number for selected market');
+  return '+' + market.dialCode + national;
 }
 
 export const SMS = 'SMS';
@@ -78,7 +99,7 @@ export class TwilioSms implements SmsPort {
   }
 }
 
-export interface AuthUser { id: string; accountId: string; sessionId: string; }
+export interface AuthUser { id: string; accountId: string; sessionId: string; countryCode: string; defaultCurrency: string; }
 export const CurrentUser = createParamDecorator((_d, ctx: ExecutionContext): AuthUser => ctx.switchToHttp().getRequest().user);
 
 @Injectable()
@@ -91,11 +112,16 @@ export class AuthGuard implements CanActivate {
       const p: any = jwt.verify(h.replace(/^Bearer /, ''), secret());
       if (!p.sid || !p.sub || !p.acc) throw new UnauthorizedException();
       const active = await this.pool.query(
-        'select id from auth_sessions where id=$1 and user_id=$2 and revoked_at is null and expires_at > now()',
+        `select s.id,u.country_code,u.default_currency from auth_sessions s
+          join users u on u.id=s.user_id
+          where s.id=$1 and s.user_id=$2 and s.revoked_at is null and s.expires_at > now()`,
         [p.sid, p.sub],
       );
       if (!active.rows.length) throw new UnauthorizedException();
-      req.user = { id:p.sub, accountId:p.acc, sessionId:p.sid } as AuthUser;
+      req.user = {
+        id:p.sub, accountId:p.acc, sessionId:p.sid,
+        countryCode:active.rows[0].country_code, defaultCurrency:active.rows[0].default_currency,
+      } as AuthUser;
       return true;
     } catch { throw new UnauthorizedException(); }
   }
@@ -127,8 +153,10 @@ const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60_000;
 export class AuthService {
   constructor(@Inject(PG_POOL) private pool: Pool, @Inject(SMS) private sms: SmsPort) {}
 
-  async requestOtp(phoneRaw: string, requesterIp: string) {
-    const phone = normalizePhone(phoneRaw);
+  async requestOtp(phoneRaw: string, requesterIp: string, countryCode = 'EG') {
+    const market = getMarketProfile(countryCode.trim().toUpperCase());
+    if (!market) throw new BadRequestException('Unsupported market');
+    const phone = normalizePhone(phoneRaw, market.countryCode);
     const now = Date.now();
     const phoneKey = digest(phone);
     const ipKey = digest(requesterIp || 'unknown');
@@ -179,8 +207,10 @@ export class AuthService {
       [scope,key,new Date(rate.windowStartedAt).toISOString(),rate.count,rate.lastSentAt ? new Date(rate.lastSentAt).toISOString() : null]);
   }
 
-  async verify(phoneRaw: string, code: string, requesterIp: string) {
-    const phone = normalizePhone(phoneRaw);
+  async verify(phoneRaw: string, code: string, requesterIp: string, countryCode = 'EG') {
+    const market = getMarketProfile(countryCode.trim().toUpperCase());
+    if (!market) throw new BadRequestException('Unsupported market');
+    const phone = normalizePhone(phoneRaw, market.countryCode);
     const phoneKey = digest(phone);
     const c = await this.pool.connect();
     try {
@@ -222,11 +252,11 @@ export class AuthService {
       await c.query('rollback').catch(()=>undefined);
       throw e;
     } finally { c.release(); }
-    const { id, accountId } = await this.findOrCreate(phone);
-    return this.createSession(id, accountId);
+    const user = await this.findOrCreate(phone, market.countryCode, market.currency);
+    return this.createSession(user.id, user.accountId, user.countryCode, user.defaultCurrency);
   }
 
-  private async createSession(userId: string, accountId: string) {
+  private async createSession(userId: string, accountId: string, countryCode: string, defaultCurrency: string) {
     const sessionId = randomUUID();
     const refreshToken = randomBytes(48).toString('base64url');
     const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_MS);
@@ -235,10 +265,12 @@ export class AuthService {
       [sessionId,userId,tokenDigest(refreshToken),expiresAt.toISOString()],
     );
     return {
-      token: jwt.sign({ sub:userId, acc:accountId, sid:sessionId }, secret(), { expiresIn:ACCESS_TOKEN_TTL }),
+      token: jwt.sign({ sub:userId, acc:accountId, sid:sessionId, cc:countryCode, cur:defaultCurrency }, secret(), { expiresIn:ACCESS_TOKEN_TTL }),
       refreshToken,
       expiresAt: expiresAt.toISOString(),
       userId,
+      countryCode,
+      defaultCurrency,
     };
   }
 
@@ -287,13 +319,18 @@ export class AuthService {
     } catch(e) { await c.query('rollback').catch(()=>undefined); throw e; }
     finally { c.release(); }
     if (!userId || !sessionId || !rotatedToken || !expiresAt || reused) throw new UnauthorizedException('Refresh token is invalid or expired');
-    const account = (await this.pool.query(`select id from accounts where owner_id=$1 and currency='EGP'`,[userId])).rows[0];
+    const account = (await this.pool.query(
+      `select a.id,u.country_code,u.default_currency from users u
+        join accounts a on a.owner_id=u.id and a.currency=u.default_currency where u.id=$1`, [userId],
+    )).rows[0];
     if (!account) throw new UnauthorizedException();
     return {
-      token: jwt.sign({ sub:userId, acc:account.id, sid:sessionId }, secret(), { expiresIn:ACCESS_TOKEN_TTL }),
+      token: jwt.sign({ sub:userId, acc:account.id, sid:sessionId, cc:account.country_code, cur:account.default_currency }, secret(), { expiresIn:ACCESS_TOKEN_TTL }),
       refreshToken: rotatedToken,
       expiresAt: expiresAt.toISOString(),
       userId,
+      countryCode: account.country_code,
+      defaultCurrency: account.default_currency,
     };
   }
 
@@ -324,34 +361,51 @@ export class AuthService {
     return { success:true };
   }
 
-  private async findOrCreate(phone: string) {
+  private async findOrCreate(phoneE164: string, countryCode: string, defaultCurrency: string) {
     const c = await this.pool.connect();
     try {
       await c.query('begin');
-      let r = (await c.query(`select u.id,a.id as acc from users u join accounts a on a.owner_id=u.id and a.currency='EGP' where u.phone=$1 for update`,[phone])).rows[0];
-      if (!r) {
-        await c.query('insert into users(id,phone) values($1,$2) on conflict(phone) do nothing',[randomUUID(),phone]);
-        const user=(await c.query('select id from users where phone=$1 for update',[phone])).rows[0];
-        if (!user) throw new Error('Unable to create user');
-        await c.query(`insert into accounts(id,owner_id,kind,currency) values($1,$2,$3,'EGP') on conflict do nothing`,[randomUUID(),user.id,'user']);
-        r=(await c.query(`select u.id,a.id as acc from users u join accounts a on a.owner_id=u.id and a.currency='EGP' where u.phone=$1`,[phone])).rows[0];
+      let user = (await c.query(
+        'select id,country_code,default_currency from users where phone=$1 for update', [phoneE164],
+      )).rows[0];
+      if (user && (user.country_code !== countryCode || user.default_currency !== defaultCurrency)) {
+        throw new BadRequestException('This phone number is already registered under a different market');
       }
-      if (!r) throw new Error('Unable to create wallet account');
+      if (!user) {
+        await c.query(
+          'insert into users(id,phone,country_code,default_currency) values($1,$2,$3,$4) on conflict(phone) do nothing',
+          [randomUUID(), phoneE164, countryCode, defaultCurrency],
+        );
+        user = (await c.query(
+          'select id,country_code,default_currency from users where phone=$1 for update', [phoneE164],
+        )).rows[0];
+      }
+      if (!user) throw new Error('Unable to create user');
+      const existingAccount = (await c.query(
+        'select id from accounts where owner_id=$1 and currency=$2 for update', [user.id, defaultCurrency],
+      )).rows[0];
+      const accountId = existingAccount?.id ?? randomUUID();
+      if (!existingAccount) {
+        await c.query(
+          'insert into accounts(id,owner_id,kind,currency) values($1,$2,\'user\',$3)',
+          [accountId, user.id, defaultCurrency],
+        );
+      }
       await c.query('commit');
-      return { id:r.id, accountId:r.acc };
+      return { id:user.id, accountId, countryCode:user.country_code, defaultCurrency:user.default_currency };
     } catch(e) { await c.query('rollback').catch(()=>undefined); throw e; }
     finally { c.release(); }
   }
 }
-class OtpDto { @IsString() phone: string; }
-class VerifyDto { @IsString() phone: string; @IsString() @Matches(/^[0-9]{6}$/) code: string; }
+class OtpDto { @IsString() phone: string; @IsOptional() @IsIn(['AE','EG','SA','GB','US']) countryCode?: string; }
+class VerifyDto { @IsString() phone: string; @IsString() @Matches(/^[0-9]{6}$/) code: string; @IsOptional() @IsIn(['AE','EG','SA','GB','US']) countryCode?: string; }
 class RefreshDto { @IsString() @MinLength(40) refreshToken: string; }
 
 @Controller('auth')
 export class AuthController {
   constructor(private auth: AuthService) {}
-  @Post('otp') async otp(@Body() b: OtpDto, @Req() req: any) { await this.auth.requestOtp(b.phone, req.ip ?? req.socket?.remoteAddress ?? 'unknown'); return { sent: true }; }
-  @Post('verify') verify(@Body() b: VerifyDto, @Req() req: any) { return this.auth.verify(b.phone, b.code, req.ip ?? req.socket?.remoteAddress ?? 'unknown'); }
+  @Post('otp') async otp(@Body() b: OtpDto, @Req() req: any) { await this.auth.requestOtp(b.phone, req.ip ?? req.socket?.remoteAddress ?? 'unknown', b.countryCode ?? 'EG'); return { sent: true }; }
+  @Post('verify') verify(@Body() b: VerifyDto, @Req() req: any) { return this.auth.verify(b.phone, b.code, req.ip ?? req.socket?.remoteAddress ?? 'unknown', b.countryCode ?? 'EG'); }
   @Post('refresh') refresh(@Body() b: RefreshDto) { return this.auth.refresh(b.refreshToken); }
   @Post('logout') @UseGuards(AuthGuard) logout(@CurrentUser() u: AuthUser) { return this.auth.logout(u); }
   @Post('logout-all') @UseGuards(AuthGuard) logoutAll(@CurrentUser() u: AuthUser) { return this.auth.logoutAll(u); }
