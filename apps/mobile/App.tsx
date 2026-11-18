@@ -190,7 +190,7 @@ export default function App() {
     else { setActiveMerchant(null);setMerchantMembers([]);setMerchantInvitations([]); }
   };
   const inviteMerchantMember = async () => {
-    if(!activeMerchant||!/^\\+[1-9]\\d{7,14}$/.test(merchantInvitePhone.trim())) {
+    if(!activeMerchant||!/^\+[1-9]\d{7,14}$/.test(merchantInvitePhone.trim())) {
       Alert.alert(w.invalidRequest,rtl?'استخدم رقمًا دوليًا بصيغة +2010...':'Enter a phone number in international format, e.g. +2010...');
       return;
     }
@@ -327,11 +327,11 @@ export default function App() {
       {merchantMembers.map(member=><View key={member.userId} style={{paddingVertical:10,borderBottomWidth:1,borderBottomColor:C.line}}>
         {txt(member.phone,{fontWeight:'800'})}
         {txt(member.role.toUpperCase(),{fontSize:10,color:C.muted,marginVertical:5})}
-        {activeMerchant.role==='owner'&&member.role!=='owner'&&<View style={[S.row,{flexWrap:'wrap'}]}>
+        {activeMerchant.role==='owner'&&member.role!=='owner'&&member.phone!==phone&&<View style={[S.row,{flexWrap:'wrap'}]}>
           {(['admin','manager','viewer'] as const).map(role=><Pressable key={role} disabled={busy} onPress={()=>void changeMerchantMemberRole(member,role)} style={{paddingHorizontal:9,paddingVertical:6,borderRadius:10,backgroundColor:member.role===role?C.teal:C.pale,marginRight:5,marginBottom:5}}><Text style={{fontSize:10,fontWeight:'800',color:member.role===role?C.white:C.teal}}>{role}</Text></Pressable>)}
           <Pressable disabled={busy} onPress={()=>removeMerchantMember(member)} style={{paddingHorizontal:9,paddingVertical:6,borderRadius:10,backgroundColor:'#FCEEEE'}}><Text style={{fontSize:10,fontWeight:'800',color:C.red}}>{rtl?'إزالة':'Remove'}</Text></Pressable>
         </View>}
-        {activeMerchant.role==='admin'&&['manager','viewer'].includes(member.role)&&member.role!=='owner'&&<View style={[S.row,{flexWrap:'wrap'}]}>
+        {activeMerchant.role==='admin'&&['manager','viewer'].includes(member.role)&&member.role!=='owner'&&member.phone!==phone&&<View style={[S.row,{flexWrap:'wrap'}]}>
           {(['manager','viewer'] as const).map(role=><Pressable key={role} disabled={busy} onPress={()=>void changeMerchantMemberRole(member,role)} style={{paddingHorizontal:9,paddingVertical:6,borderRadius:10,backgroundColor:member.role===role?C.teal:C.pale,marginRight:5}}><Text style={{fontSize:10,fontWeight:'800',color:member.role===role?C.white:C.teal}}>{role}</Text></Pressable>)}
           <Pressable disabled={busy} onPress={()=>removeMerchantMember(member)} style={{paddingHorizontal:9,paddingVertical:6,borderRadius:10,backgroundColor:'#FCEEEE'}}><Text style={{fontSize:10,fontWeight:'800',color:C.red}}>{rtl?'إزالة':'Remove'}</Text></Pressable>
         </View>}
