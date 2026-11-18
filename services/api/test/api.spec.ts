@@ -1,6 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { createHmac } from 'crypto';
 import { cleanupAuthData } from '../src/auth/cleanup';
+import { normalizePhone } from '../src/auth/auth';
 import request from 'supertest';
 import { makeApp } from './helpers';
 
@@ -18,6 +19,21 @@ describe('API flow', () => {
   it('exposes liveness and database/schema readiness checks', async () => {
     await request(app.getHttpServer()).get('/health/live').expect(200).expect({ status:'ok' });
     await request(app.getHttpServer()).get('/health/ready').expect(200).expect({ status:'ready' });
+  });
+
+  it('creates the default wallet and market profile for a non-Egyptian phone', async () => {
+    const phone = '0501234567';
+    await request(app.getHttpServer()).post('/auth/otp').send({ phone, countryCode: 'AE' }).expect(201);
+    const login = await request(app.getHttpServer()).post('/auth/verify')
+      .send({ phone, code: '000000', countryCode: 'AE' }).expect(201);
+    expect(login.body).toMatchObject({ countryCode: 'AE', defaultCurrency: 'AED' });
+    const headers = { Authorization: `Bearer ${login.body.token}` };
+    const wallet = await request(app.getHttpServer()).get('/wallet').set(headers).expect(200);
+    expect(wallet.body.currency).toBe('AED');
+    const wallets = await request(app.getHttpServer()).get('/wallets').set(headers).expect(200);
+    expect(wallets.body.map((item: any) => item.currency)).toContain('AED');
+    await request(app.getHttpServer()).post('/auth/otp')
+      .send({ phone: '+971 50 123 4567', countryCode: 'EG' }).expect(400);
   });
 
   it('rejects bad phone numbers and missing auth', async () => {
@@ -135,7 +151,7 @@ describe('API flow', () => {
     const before = (await request(s).get('/wallet').set(h(alice))).body.balance;
     const first = await request(s).post('/wallet/topup').set(h(alice, key))
       .send({ amount: 4_200, method: 'instapay' }).expect(201);
-    const user = (await pool.query('select id from users where phone=$1', ['01000000001'])).rows[0];
+    const user = (await pool.query('select id from users where phone=$1', [normalizePhone('01000000001')])).rows[0];
     await pool.query(
       "update payment_attempts set status='processing', ledger_txn_id=null where idempotency_key=$1",
       [`${user.id}:topup:${key}`],
@@ -173,7 +189,7 @@ describe('API flow', () => {
   it('persists OTP challenges, enforces resend cooldown, and consumes a code once', async () => {
     const phone = '01000000031';
     await request(app.getHttpServer()).post('/auth/otp').send({ phone }).expect(201);
-    const key = createHmac('sha256', 'dev-only-otp-pepper-change-before-deployment').update(phone).digest('hex');
+    const key = createHmac('sha256', 'dev-only-otp-pepper-change-before-deployment').update(normalizePhone(phone)).digest('hex');
     const challenge = (await pool.query('select phone_key, attempts, expires_at from otp_challenges where phone_key=$1',[key])).rows[0];
     expect(challenge).toBeTruthy();
     expect(challenge.attempts).toBe(0);
