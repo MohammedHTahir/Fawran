@@ -6,11 +6,12 @@ function serviceWith(actorRole: string, targetRole: string | null) {
     if (sql.includes('join merchant_members')) return { rows: [{ id: 'merchant-1', role: actorRole }] };
     return { rows: [] };
   });
+  let roleReadCount = 0;
   const clientQuery = jest.fn(async (sql: string) => {
     if (sql.includes('select role from merchant_members') && sql.includes('user_id=$2')) {
-      const userId = (clientQuery.mock.calls[clientQuery.mock.calls.length - 1]?.[0] as string);
-      const params = clientQuery.mock.calls[clientQuery.mock.calls.length - 1]?.[1] as unknown[];
-      return { rows: [{ role: params?.[1] === 'owner-user' ? actorRole : targetRole }].filter(x => x.role !== null) };
+      roleReadCount += 1;
+      const role = roleReadCount === 1 ? actorRole : targetRole;
+      return { rows: [{ role }].filter(x => x.role !== null) };
     }
     return { rows: [] };
   });
