@@ -183,6 +183,8 @@ alter table payment_links add column if not exists currency text not null defaul
 alter table payment_links add constraint payment_links_currency_code_check
   check (currency in ('AED','EGP','SAR','GBP','USD'));
 alter table payment_intents drop constraint if exists payment_intents_currency_check;
+-- pg-mem auto-names the inline legacy EGP-only check differently from PostgreSQL.
+alter table payment_intents drop constraint if exists payment_intents_constraint_2;
 alter table payment_intents add constraint payment_intents_currency_code_check
   check (currency in ('AED','EGP','SAR','GBP','USD'));
 create index if not exists accounts_owner_currency_idx on accounts(owner_id, currency);
@@ -383,15 +385,6 @@ create table admin_audit_events (
   created_at timestamptz not null default now()
 );
 create index admin_audit_events_created_idx on admin_audit_events(created_at desc);
-`,
-  }, {
-    version: 9,
-    name: 'pgmem_multi_currency_payment_intent_constraint_compatibility',
-    sql: `
--- pg-mem names an inline legacy EGP-only check payment_intents_constraint_2.
--- PostgreSQL drops the explicitly named legacy constraint in migration 6;
--- this IF EXISTS keeps production databases unchanged while aligning test schema behavior.
-alter table payment_intents drop constraint if exists payment_intents_constraint_2;
 `,
   },
 ] as const;
