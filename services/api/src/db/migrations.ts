@@ -386,6 +386,96 @@ create table admin_audit_events (
 );
 create index admin_audit_events_created_idx on admin_audit_events(created_at desc);
 `,
+  }, {
+    version: 9,
+    name: 'test_refunds_payout_requests_and_settlement_reconciliation',
+    sql: `
+create table payment_refunds (
+  id text primary key,
+  payment_intent_id text not null references payment_intents(id) on delete restrict,
+  user_id text not null references users(id) on delete restrict,
+  amount bigint not null check (amount > 0),
+  currency text not null check (currency in ('AED','EGP','SAR','GBP','USD')),
+  idempotency_key text not null unique,
+  request_fingerprint text not null,
+  status text not null default 'created' check (status in ('created','pending','succeeded','failed','under_review')),
+  provider_name text,
+  provider_ref text,
+  failure_code text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(provider_name,provider_ref)
+);
+create index payment_refunds_intent_idx on payment_refunds(payment_intent_id,created_at desc);
+
+create table payout_requests (
+  id text primary key,
+  merchant_id text not null references merchants(id) on delete restrict,
+  requested_by text not null references users(id) on delete restrict,
+  amount bigint not null check (amount > 0),
+  currency text not null check (currency in ('AED','EGP','SAR','GBP','USD')),
+  idempotency_key text not null unique,
+  request_fingerprint text not null,
+  status text not null default 'blocked' check (status in ('blocked','created','pending','succeeded','failed','under_review')),
+  provider_name text,
+  provider_ref text,
+  failure_code text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(provider_name,provider_ref)
+);
+create index payout_requests_merchant_idx on payout_requests(merchant_id,created_at desc);
+
+create table settlement_batches (
+  id text primary key,
+  provider_name text not null,
+  external_batch_id text not null,
+  request_fingerprint text not null,
+  currency text not null check (currency in ('AED','EGP','SAR','GBP','USD')),
+  settlement_date date not null,
+  status text not null default 'imported' check (status in ('imported','reconciled','has_exceptions')),
+  imported_by text not null references users(id) on delete restrict,
+  line_count integer not null default 0,
+  matched_count integer not null default 0,
+  exception_count integer not null default 0,
+  created_at timestamptz not null default now(),
+  unique(provider_name,external_batch_id)
+);
+create index settlement_batches_created_idx on settlement_batches(created_at desc);
+
+create table settlement_lines (
+  id text primary key,
+  batch_id text not null references settlement_batches(id) on delete restrict,
+  line_number integer not null,
+  provider_ref text not null,
+  line_type text not null check (line_type in ('charge','refund','payout')),
+  gross_amount_minor bigint not null check (gross_amount_minor > 0),
+  fee_amount_minor bigint not null default 0 check (fee_amount_minor >= 0),
+  net_amount_minor bigint not null check (net_amount_minor >= 0),
+  currency text not null check (currency in ('AED','EGP','SAR','GBP','USD')),
+  match_status text not null check (match_status in ('matched','unmatched','amount_mismatch','currency_mismatch','duplicate','invalid')),
+  payment_intent_id text references payment_intents(id) on delete restrict,
+  refund_id text references payment_refunds(id) on delete restrict,
+  payout_id text references payout_requests(id) on delete restrict,
+  created_at timestamptz not null default now(),
+  unique(batch_id,line_number),
+  check (net_amount_minor = gross_amount_minor - fee_amount_minor)
+);
+create index settlement_lines_batch_idx on settlement_lines(batch_id,line_number);
+
+create table reconciliation_exceptions (
+  id text primary key,
+  batch_id text not null references settlement_batches(id) on delete restrict,
+  settlement_line_id text not null references settlement_lines(id) on delete restrict,
+  kind text not null check (kind in ('unmatched','amount_mismatch','currency_mismatch','duplicate','invalid')),
+  details jsonb not null default '{}'::jsonb,
+  status text not null default 'open' check (status in ('open','resolved','ignored')),
+  created_at timestamptz not null default now(),
+  resolved_at timestamptz,
+  resolved_by text references users(id) on delete restrict
+);
+create index reconciliation_exceptions_status_idx on reconciliation_exceptions(status,created_at desc);
+`,
   },
 ] as const;
 
