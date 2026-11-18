@@ -2,7 +2,7 @@
 
 ## User market identity
 
-New users select one of the currently catalogued markets: AE, EG, SA, GB or US. OTP phone numbers are validated with libphonenumber and stored in E.164 format. Each user receives an immutable-at-the-API-level country code and default currency:
+New users select one of the currently catalogued markets: AE, EG, SA, GB or US. OTP phone numbers are validated against the selected market's supported mobile format and stored in E.164 format. Each user receives an immutable-at-the-API-level country code and default currency:
 
 | Market | Country code | Default currency |
 |---|---|---|
