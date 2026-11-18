@@ -49,4 +49,4 @@ npx eas-cli@latest build --platform android --profile preview
 
 The preview Android profile creates an APK; production creates an AAB for Google Play. Verify current EAS quotas before release planning.
 
-All amounts are integer piasters (100 piasters = EGP 1). Provider methods are placeholders and must not be represented as real InstaPay/card/mobile-wallet integrations. See `docs/ROADMAP.md` and `docs/PRODUCTION_READINESS.md`.
+All monetary amounts are integer minor units and each account/transaction carries an explicit currency. EGP top-ups remain a test-only flow; personal payment-link checkout uses simulated providers; merchant settlement, payouts, live FX and real-money movement remain disabled. Test FX quotes are previews only and cannot be executed. Provider methods must not be represented as real InstaPay/card/mobile-wallet integrations. See `docs/REAL_MONEY_SAFETY.md`, `docs/MULTI_MARKET_PRODUCT_PLAN.md` and `docs/MULTI_MARKET_OPERATIONS.md`.
