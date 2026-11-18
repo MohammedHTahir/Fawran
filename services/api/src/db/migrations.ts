@@ -635,7 +635,6 @@ create index merchant_invitations_merchant_idx
   on merchant_invitations(merchant_id,status,created_at desc);
 `,
   },
-  },
 ] as const;
 
 /** Run as an explicit deployment step, never during API startup. */
