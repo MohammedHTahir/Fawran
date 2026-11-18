@@ -4,7 +4,6 @@ import { IsIn, IsOptional, IsString, Matches, MinLength } from 'class-validator'
 import { createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'crypto';
 import * as jwt from 'jsonwebtoken';
 import { Pool } from 'pg';
-import { parsePhoneNumberFromString, type CountryCode } from 'libphonenumber-js';
 import { PG_POOL } from '../db/db.module';
 import { getMarketProfile } from '../markets/market-registry';
 
@@ -16,15 +15,39 @@ const secret = () => {
   return value ?? 'dev-only-secret-change-before-deployment';
 };
 
-/** Normalize a national or international number to E.164 for the selected market. */
+/** Normalize a national or international mobile number to E.164 for the selected catalog market. */
+const PHONE_MARKETS: Record<string, { dialCode: string; nationalPattern: RegExp; localZero: boolean }> = {
+  EG: { dialCode: '20', nationalPattern: /^1[0125][0-9]{8}$/, localZero: true },
+  AE: { dialCode: '971', nationalPattern: /^5[0-9]{8}$/, localZero: true },
+  SA: { dialCode: '966', nationalPattern: /^5[0-9]{8}$/, localZero: true },
+  GB: { dialCode: '44', nationalPattern: /^7[0-9]{9}$/, localZero: true },
+  US: { dialCode: '1', nationalPattern: /^[2-9][0-9]{9}$/, localZero: false },
+};
+
 export function normalizePhone(raw: string, countryCode = 'EG'): string {
-  const market = getMarketProfile(countryCode.trim().toUpperCase());
-  if (!market) throw new BadRequestException('Unsupported phone market');
-  const parsed = parsePhoneNumberFromString(raw, market.countryCode as CountryCode);
-  if (!parsed || !parsed.isValid() || parsed.country !== market.countryCode) {
-    throw new BadRequestException('Invalid mobile number for selected market');
+  const market = PHONE_MARKETS[countryCode.trim().toUpperCase()];
+  if (!market || !getMarketProfile(countryCode.trim().toUpperCase())) {
+    throw new BadRequestException('Unsupported phone market');
   }
-  return parsed.number;
+  let digits = raw.trim().replace(/[\\s()-]/g, '');
+  if (digits.startsWith('+')) {
+    digits = digits.slice(1);
+    if (!digits.startsWith(market.dialCode)) throw new BadRequestException('Phone country prefix does not match selected market');
+    digits = digits.slice(market.dialCode.length);
+  } else if (digits.startsWith('00')) {
+    digits = digits.slice(2);
+    if (!digits.startsWith(market.dialCode)) throw new BadRequestException('Phone country prefix does not match selected market');
+    digits = digits.slice(market.dialCode.length);
+  } else {
+    digits = digits.replace(/[^0-9]/g, '');
+    if (!market.localZero && digits.startsWith(market.dialCode) && digits.length === market.dialCode.length + 10) {
+      digits = digits.slice(market.dialCode.length);
+    }
+  }
+  digits = digits.replace(/[^0-9]/g, '');
+  if (market.localZero && digits.startsWith('0')) digits = digits.slice(1);
+  if (!market.nationalPattern.test(digits)) throw new BadRequestException('Invalid mobile number for selected market');
+  return '+' + market.dialCode + digits;
 }
 
 export const SMS = 'SMS';
