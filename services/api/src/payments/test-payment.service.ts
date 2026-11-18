@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PaymentIntentStore } from './payment-intent.store';
+import { PaymentIntentStatus } from './payment-lifecycle';
 
 export interface TestProviderEvent {
   eventId: string;
@@ -58,7 +59,7 @@ export class TestPaymentService {
       providerName: 'test', providerEventId: event.eventId, eventType: event.eventType,
       payloadSha256: digest, paymentIntentId: event.paymentIntentId,
     });
-    let next = EVENT_STATUS[event.eventType];
+    let next: PaymentIntentStatus = EVENT_STATUS[event.eventType];
     // A contradictory late success is never silently accepted after a failure.
     if (intent.status === 'failed' && next === 'succeeded') next = 'under_review';
     try {
