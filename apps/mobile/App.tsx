@@ -17,6 +17,7 @@ type MerchantSummary = { id:string; display_name:string; country_code:string; cu
 type MerchantDetails = { merchantId:string; legalName:string; displayName:string; countryCode:string; currency:string; kybStatus:string; status:string; role:string; paymentsEnabled:boolean; accounts:Array<{currency:string;balance:number;settlementStatus:string}> };
 type MerchantMember = { userId:string; phone:string; role:'owner'|'admin'|'manager'|'viewer'; createdAt:string };
 type MerchantInvitation = { invitationId:string; invitedUserId:string; phone:string; role:'admin'|'manager'|'viewer'; status:string; expiresAt:string; createdAt:string };
+type MerchantStore = { storeId:string; name:string; countryCode:string; address:string|null; status:'draft'|'active'|'suspended'; createdAt:string };
 type MyMerchantInvitation = { invitationId:string; merchantId:string; merchantName:string; countryCode:string; role:string; status:string; expiresAt:string; createdAt:string; invitedByPhone:string };
 type AuthSession = { id:string; created_at:string; last_used_at:string|null; expires_at:string; is_current:boolean };
 type ApiError = Error & { status: number };
@@ -143,6 +144,7 @@ export default function App() {
   const [merchants,setMerchants] = useState<MerchantSummary[]>([]), [activeMerchant,setActiveMerchant] = useState<MerchantDetails|null>(null);
   const [merchantOffers,setMerchantOffers] = useState<any[]>([]), [merchantCampaigns,setMerchantCampaigns] = useState<any[]>([]);
   const [merchantMembers,setMerchantMembers] = useState<MerchantMember[]>([]), [merchantInvitations,setMerchantInvitations] = useState<MerchantInvitation[]>([]), [myMerchantInvitations,setMyMerchantInvitations] = useState<MyMerchantInvitation[]>([]);
+  const [merchantStores,setMerchantStores] = useState<MerchantStore[]>([]), [merchantStoreName,setMerchantStoreName] = useState(''), [merchantStoreAddress,setMerchantStoreAddress] = useState(''), [merchantStoreCountry,setMerchantStoreCountry] = useState<MarketCode>('EG');
   const [merchantInvitePhone,setMerchantInvitePhone] = useState(''), [merchantInviteRole,setMerchantInviteRole] = useState<'admin'|'manager'|'viewer'>('manager');
   const [merchantLegalName,setMerchantLegalName] = useState(''), [merchantDisplayName,setMerchantDisplayName] = useState('');
   const [registrationNumber,setRegistrationNumber] = useState(''), [merchantLinkAmount,setMerchantLinkAmount] = useState('');
@@ -156,7 +158,7 @@ export default function App() {
   const activityTx = tx.filter(x=>(activityFilter==='all'||(activityFilter==='in'?x.amount>=0:x.amount<0))&&(!activitySearch.trim()||[x.kind,x.memo||''].join(' ').toLocaleLowerCase().includes(activitySearch.trim().toLocaleLowerCase())));
   useEffect(() => { onAuthExpired = () => { setToken(null); setBalance(0); setTx([]); setRewards(null); setMerchants([]); setActiveMerchant(null); setMerchantOffers([]); setMerchantCampaigns([]); setPage('tabs'); }; return () => { onAuthExpired = null; }; }, []);
   useEffect(() => { (async()=>{ const [l,t,p,cc,cur,defaultCur] = await Promise.all([SecureStore.getItemAsync('fawran.lang'),SecureStore.getItemAsync('fawran.token'),SecureStore.getItemAsync('fawran.phone'),SecureStore.getItemAsync('fawran.countryCode'),SecureStore.getItemAsync('fawran.currency'),SecureStore.getItemAsync('fawran.defaultCurrency')]); if(l==='ar'||l==='en')setLang(l); if(cc&&['AE','EG','SA','GB','US'].includes(cc)){setCountryCode(cc as MarketCode);setRecipientCountryCode(cc as MarketCode);} if(cur&&['AED','EGP','SAR','GBP','USD'].includes(cur))setCurrency(cur); else if(defaultCur&&['AED','EGP','SAR','GBP','USD'].includes(defaultCur))setCurrency(defaultCur); if(t){accessTokenCache=t;setToken(t);setPhone(p||'');} })(); }, []);
-  const refresh = async () => { if(!token)return; setRefreshing(true); try { const [a,b,s,ws,rw,ms] = await Promise.all([api<{balance:number}>('/wallet?currency='+encodeURIComponent(currency),token),api<Tx[]>('/transactions?currency='+encodeURIComponent(currency),token),api<AuthSession[]>('/auth/sessions',token),api<WalletSummary[]>('/wallets',token),api<RewardSummary>('/rewards',token),api<MerchantSummary[]>('/merchants/me',token)]); setBalance(a.balance);setTx(b);setSessions(s);setWallets(ws);setRewards(rw);setMerchants(ms); } catch(e) { if((e as ApiError).status===401){await SecureStore.deleteItemAsync('fawran.token');await SecureStore.deleteItemAsync('fawran.refreshToken');accessTokenCache=null;setToken(null);setBalance(0);setTx([]);setWallets([]);setSessions([]);setRewards(null);setMerchants([]);setActiveMerchant(null);setMerchantOffers([]);setMerchantCampaigns([]);} else Alert.alert(w.generic,errorText(e,w)); } finally {setRefreshing(false);} };
+  const refresh = async () => { if(!token)return; setRefreshing(true); try { const [a,b,s,ws,rw,ms] = await Promise.all([api<{balance:number}>('/wallet?currency='+encodeURIComponent(currency),token),api<Tx[]>('/transactions?currency='+encodeURIComponent(currency),token),api<AuthSession[]>('/auth/sessions',token),api<WalletSummary[]>('/wallets',token),api<RewardSummary>('/rewards',token),api<MerchantSummary[]>('/merchants/me',token)]); setBalance(a.balance);setTx(b);setSessions(s);setWallets(ws);setRewards(rw);setMerchants(ms); } catch(e) { if((e as ApiError).status===401){await SecureStore.deleteItemAsync('fawran.token');await SecureStore.deleteItemAsync('fawran.refreshToken');accessTokenCache=null;setToken(null);setBalance(0);setTx([]);setWallets([]);setSessions([]);setRewards(null);setMerchants([]);setActiveMerchant(null);setMerchantOffers([]);setMerchantCampaigns([]);setMerchantMembers([]);setMerchantInvitations([]);setMyMerchantInvitations([]);setMerchantStores([]);} else Alert.alert(w.generic,errorText(e,w)); } finally {setRefreshing(false);} };
   useEffect(()=>{if(token)void refresh();},[token,currency]);
   const createCurrencyWallet = async (code:string) => { if(wallets.some(x=>x.currency===code)){setCurrency(code);await SecureStore.setItemAsync('fawran.currency',code);return;} setBusy(true); try { await api('/wallets',token,'POST',{currency:code}); setCurrency(code);await SecureStore.setItemAsync('fawran.currency',code); } catch(e) { Alert.alert(w.generic,errorText(e,w)); } finally { setBusy(false); } };
   const claimReferral = async () => { const code=referralInput.trim().toUpperCase(); if(!/^[A-F0-9]{16}$/.test(code)){Alert.alert(w.generic,rtl?'أدخل كود إحالة صحيحًا مكوّنًا من 16 حرفًا أو رقمًا':'Enter a valid 16-character referral code');return;} setBusy(true); try { await api('/rewards/referrals/claim',token,'POST',{code}); setReferralInput(''); await refresh(); Alert.alert(rtl?'تم تسجيل الإحالة':'Referral claimed',rtl?'سيتم إضافة النقاط بعد استيفاء شروط التأهيل.':'Points are awarded only after the qualification conditions are met.'); } catch(e) { Alert.alert(w.generic,errorText(e,w)); } finally { setBusy(false); } };
@@ -165,16 +167,19 @@ export default function App() {
     setBusy(true);
     try {
       const details = await api<MerchantDetails>('/merchants/'+id,token);
-      const [offers,campaigns,members,invitations] = await Promise.all([
+      const [offers,campaigns,members,invitations,stores] = await Promise.all([
         api<any[]>('/merchants/'+id+'/offers',token),
         api<any[]>('/merchants/'+id+'/campaigns',token),
         api<MerchantMember[]>('/merchants/'+id+'/members',token),
         ['owner','admin'].includes(details.role)
           ? api<MerchantInvitation[]>('/merchants/'+id+'/invitations',token)
-          : Promise.resolve([] as MerchantInvitation[])
+          : Promise.resolve([] as MerchantInvitation[]),
+        api<MerchantStore[]>('/merchants/'+id+'/stores',token)
       ]);
       setActiveMerchant(details);setMerchantOffers(offers);setMerchantCampaigns(campaigns);
-      setMerchantMembers(members);setMerchantInvitations(invitations);
+      setMerchantMembers(members);setMerchantInvitations(invitations);setMerchantStores(stores);
+      const market=MARKETS.find(x=>x.code===details.countryCode);
+      if(market)setMerchantStoreCountry(market.code);
     } catch(e) { Alert.alert(w.generic,errorText(e,w)); }
     finally { setBusy(false); }
   };
@@ -188,6 +193,29 @@ export default function App() {
     void loadMyMerchantInvitations();
     if(merchants[0])void loadMerchant(activeMerchant?.merchantId||merchants[0].id);
     else { setActiveMerchant(null);setMerchantMembers([]);setMerchantInvitations([]); }
+  };
+  const createMerchantStore = async () => {
+    if(!activeMerchant||merchantStoreName.trim().length<2){Alert.alert(w.invalidRequest);return;}
+    const market=MARKETS.find(x=>x.code===merchantStoreCountry);
+    if(!market){Alert.alert(w.invalidRequest);return;}
+    setBusy(true);
+    try {
+      await api('/merchants/'+activeMerchant.merchantId+'/stores',token,'POST',{
+        name:merchantStoreName.trim(),countryCode:market.code,address:merchantStoreAddress.trim()||undefined
+      });
+      setMerchantStoreName('');setMerchantStoreAddress('');
+      await loadMerchant(activeMerchant.merchantId);
+    } catch(e) { Alert.alert(w.generic,errorText(e,w)); }
+    finally { setBusy(false); }
+  };
+  const updateMerchantStoreStatus = async (store:MerchantStore,status:'active'|'suspended') => {
+    if(!activeMerchant)return;
+    setBusy(true);
+    try {
+      await api('/merchants/'+activeMerchant.merchantId+'/stores/'+store.storeId,token,'PATCH',{status});
+      await loadMerchant(activeMerchant.merchantId);
+    } catch(e) { Alert.alert(w.generic,errorText(e,w)); }
+    finally { setBusy(false); }
   };
   const inviteMerchantMember = async () => {
     if(!activeMerchant||!/^\+[1-9]\d{7,14}$/.test(merchantInvitePhone.trim())) {
@@ -309,7 +337,7 @@ export default function App() {
   const doLink = async () => {const n=parseMoney(linkAmount);if(!n){Alert.alert(w.invalidAmount);return;}setBusy(true);try{const r=await api<{code:string}>('/links',token,'POST',{amount:n,currency,...(description.trim()?{description:description.trim()}:{})});setLinkCode(r.code);}catch(e){Alert.alert(w.generic,errorText(e,w));}finally{setBusy(false);}};
   const logoutAll = async () => { try { await api('/auth/logout-all',token,'POST',{}); } catch {} await SecureStore.deleteItemAsync('fawran.token'); await SecureStore.deleteItemAsync('fawran.refreshToken'); await SecureStore.deleteItemAsync('fawran.phone'); accessTokenCache=null; setToken(null); setBalance(0); setTx([]); setSessions([]); setRewards(null); setMerchants([]); setActiveMerchant(null); setMerchantOffers([]); setMerchantCampaigns([]); setPage('tabs'); };
   const revokeSession = async (id:string) => { setBusy(true); try { await api('/auth/sessions/'+encodeURIComponent(id),token,'DELETE'); await refresh(); } catch(e) { Alert.alert(w.generic,errorText(e,w)); } finally { setBusy(false); } };
-  const logout = async () => {try{await api('/auth/logout',token,'POST',{});}catch{}await SecureStore.deleteItemAsync('fawran.token');await SecureStore.deleteItemAsync('fawran.refreshToken');await SecureStore.deleteItemAsync('fawran.phone');accessTokenCache=null;setToken(null);setBalance(0);setTx([]);setSessions([]);setRewards(null);setMerchants([]);setActiveMerchant(null);setMerchantOffers([]);setMerchantCampaigns([]);setPage('tabs');};
+  const logout = async () => {try{await api('/auth/logout',token,'POST',{});}catch{}await SecureStore.deleteItemAsync('fawran.token');await SecureStore.deleteItemAsync('fawran.refreshToken');await SecureStore.deleteItemAsync('fawran.phone');accessTokenCache=null;setToken(null);setBalance(0);setTx([]);setSessions([]);setRewards(null);setMerchants([]);setActiveMerchant(null);setMerchantOffers([]);setMerchantCampaigns([]);setMerchantMembers([]);setMerchantInvitations([]);setMyMerchantInvitations([]);setMerchantStores([]);setPage('tabs');};
   const txt=(s:string,style:any={})=><Text style={[S.text,{textAlign:rtl?'right':'left'},style]}>{s}</Text>;
   const label=(s:string)=>txt(s,{fontWeight:'800',fontSize:13,marginBottom:7});
   const field=(v:string,change:(s:string)=>void,placeholder:string,kb:any='default',max?:number)=><TextInput value={v} onChangeText={change} placeholder={placeholder} placeholderTextColor="#98A49F" keyboardType={kb} maxLength={max} autoCapitalize="none" style={[S.input,{textAlign:kb==='phone-pad'||kb==='numeric'||kb==='decimal-pad'?'left':rtl?'right':'left'}]}/>;
@@ -322,6 +350,24 @@ export default function App() {
   if(!token)return shell(<ScrollView contentContainerStyle={S.login}><Pressable accessibilityRole="button" onPress={()=>void setLanguage(rtl?'en':'ar')}><Text style={S.lang}>{rtl?'English':'العربية'}</Text></Pressable><View style={S.loginIntro}><View style={S.logo}><Text style={{color:C.lime,fontSize:32,fontWeight:'900'}}>ف</Text></View><Text style={S.brand}>{w.app}</Text>{txt(w.tagline,{color:C.muted,fontSize:16,marginBottom:8})}</View>{cardVisual()}<View style={S.loginForm}>{label(w.phone)}{<View style={[S.row,{flexWrap:'wrap',marginBottom:12}]}>{MARKETS.map(m=><Pressable key={m.code} accessibilityRole="button" accessibilityState={{selected:countryCode===m.code}} onPress={()=>{setCountryCode(m.code);setRecipientCountryCode(m.code);setOtpSent(false);setOtp('');}} style={{paddingHorizontal:11,paddingVertical:8,borderRadius:12,backgroundColor:countryCode===m.code?C.teal:C.pale}}><Text style={{fontSize:11,fontWeight:'900',color:countryCode===m.code?C.white:C.teal}}>{m.label} · {m.code}</Text></Pressable>)}</View>}{field(phone,setPhone,countryCode==='EG'?'010 0000 0000':countryCode==='AE'||countryCode==='SA'?'050 000 0000':countryCode==='GB'?'07123 456789':'202 555 0123','phone-pad')}{otpSent&&<>{label(w.otp)}{field(otp,setOtp,'000000','numeric',6)}{__DEV__&&txt(w.dev,{fontSize:12,color:C.muted})}</>}{button(otpSent?w.verify:w.sendCode,login)}<Text style={S.notice}>{w.prototype}</Text></View></ScrollView>);
   if(page==='business')return shell(<ScrollView contentContainerStyle={S.page}>{header(w.business)}
     {myMerchantInvitations.length>0&&<View style={[S.card,{marginBottom:14}]}>{txt(rtl?'دعوات الأعمال الواردة':'Business invitations',{fontSize:16,fontWeight:'900',marginBottom:8})}{myMerchantInvitations.map(inv=><View key={inv.invitationId} style={{paddingVertical:10,borderBottomWidth:1,borderBottomColor:C.line}}>{txt(inv.merchantName,{fontWeight:'900'})}{txt((rtl?'الدور: ':'Role: ')+inv.role+' · '+(rtl?'من ':'From ')+inv.invitedByPhone,{fontSize:11,color:C.muted,marginTop:3})}{button(rtl?'قبول الدعوة':'Accept invitation',()=>void acceptMerchantInvitation(inv.invitationId,inv.merchantId))}</View>)}</View>}{merchants.length>0&&<View style={S.card}>{txt(w.business,{fontSize:14,fontWeight:'900',marginBottom:8})}<View style={[S.row,{flexWrap:'wrap'}]}>{merchants.map(m=><Pressable key={m.id} accessibilityRole="button" accessibilityState={{selected:activeMerchant?.merchantId===m.id}} onPress={()=>void loadMerchant(m.id)} style={{padding:10,borderRadius:12,backgroundColor:activeMerchant?.merchantId===m.id?C.teal:C.pale,margin:3}}><Text style={{fontSize:11,fontWeight:'900',color:activeMerchant?.merchantId===m.id?C.white:C.teal}}>{m.display_name}</Text></Pressable>)}</View></View>}{!activeMerchant?<View style={S.formCard}>{txt(w.createBusiness,{fontSize:18,fontWeight:'900',marginBottom:12})}{label(w.legalName)}{field(merchantLegalName,setMerchantLegalName,'Bekheet Trading LLC')}{label(w.displayName)}{field(merchantDisplayName,setMerchantDisplayName,'My business')}{txt(countryCode+' · '+(MARKETS.find(m=>m.code===countryCode)?.currency||currency),{fontSize:12,color:C.muted,marginVertical:8})}{button(w.createBusiness,createMerchant)}<Text style={S.notice}>{w.businessNote}</Text></View>:<><View style={S.card}>{txt(activeMerchant.displayName,{fontSize:20,fontWeight:'900'})}{txt(activeMerchant.legalName,{fontSize:12,color:C.muted,marginTop:4})}{detailLine(w.kyb,activeMerchant.kybStatus)}{detailLine(w.settlement,activeMerchant.accounts[0]?.settlementStatus||'blocked')}{detailLine(w.currency,activeMerchant.currency)}{detailLine(w.status,activeMerchant.status)}<View style={S.sectionHeading}>{txt(w.wallet,{fontSize:14,fontWeight:'900'})}</View>{activeMerchant.accounts.map(a=><View key={a.currency} style={[S.txrow,{flexDirection:rtl?'row-reverse':'row'}]}><Text style={{flex:1,fontWeight:'800'}}>{a.currency}</Text><Text style={{fontWeight:'900'}}>{money(a.balance)} {a.currency}</Text></View>)}{button(w.createMerchantAccount,createMerchantAccount,true)}</View>{activeMerchant.kybStatus!=='approved'?<View style={S.formCard}>{txt(w.submitKyb,{fontSize:16,fontWeight:'900',marginBottom:8})}{label(w.registrationNumber)}{field(registrationNumber,setRegistrationNumber,'REG-123456')}{button(w.submitKyb,submitKyb)}<Text style={S.notice}>{w.businessNote}</Text></View>:<><View style={S.formCard}>{txt(w.createMerchantLink,{fontSize:16,fontWeight:'900',marginBottom:8})}{label(w.amount)}{field(merchantLinkAmount,setMerchantLinkAmount,'0.00','decimal-pad')}{button(w.createMerchantLink,createMerchantPaymentLink)}{merchantLinkCode?button(w.copy,()=>void Clipboard.setStringAsync(merchantLinkCode).then(()=>Alert.alert(w.copied)),true):null}</View><View style={S.formCard}>{txt(w.createOffer,{fontSize:16,fontWeight:'900',marginBottom:8})}{field(merchantOfferName,setMerchantOfferName,w.offerName)}{button(w.createOffer,createMerchantOffer)}</View><View style={S.formCard}>{txt(w.createCampaign,{fontSize:16,fontWeight:'900',marginBottom:8})}{field(merchantCampaignName,setMerchantCampaignName,w.campaignName)}{field(merchantCampaignBudget,setMerchantCampaignBudget,w.campaignBudget,'numeric')}{button(w.createCampaign,createMerchantCampaign)}</View></> }<View style={S.card}>{txt(w.offerName,{fontSize:14,fontWeight:'900'})}{merchantOffers.length?merchantOffers.map(o=><View key={o.id} style={S.txrow}>{txt(o.name,{fontWeight:'800'})}{txt(o.status,{fontSize:10,color:C.muted})}</View>):<Text style={S.empty}>{w.none}</Text>}{txt(w.campaignName,{fontSize:14,fontWeight:'900',marginTop:12})}{merchantCampaigns.length?merchantCampaigns.map(o=><View key={o.id} style={S.txrow}>{txt(o.name,{fontWeight:'800'})}{txt(o.status,{fontSize:10,color:C.muted})}</View>):<Text style={S.empty}>{w.none}</Text>}</View></>}
+    {activeMerchant&&<View style={[S.card,{marginTop:14}]}>
+      {txt(rtl?'الفروع والمتاجر':'Stores and branches',{fontSize:16,fontWeight:'900',marginBottom:8})}
+      {merchantStores.length?merchantStores.map(store=><View key={store.storeId} style={{paddingVertical:10,borderBottomWidth:1,borderBottomColor:C.line}}>
+        {txt(store.name,{fontWeight:'900'})}
+        {txt(store.countryCode+(store.address?' · '+store.address:''),{fontSize:11,color:C.muted,marginTop:3})}
+        <View style={[S.row,{justifyContent:'space-between',marginTop:6}]}>
+          {txt(store.status.toUpperCase(),{fontSize:10,color:store.status==='active'?C.teal:C.muted,fontWeight:'900'})}
+          {['owner','admin'].includes(activeMerchant.role)&&<Pressable disabled={busy} onPress={()=>void updateMerchantStoreStatus(store,store.status==='active'?'suspended':'active')}><Text style={{fontSize:11,fontWeight:'900',color:store.status==='active'?C.red:C.teal}}>{store.status==='active'?(rtl?'إيقاف':'Suspend'):(rtl?'تفعيل':'Activate')}</Text></Pressable>}
+        </View>
+      </View>):<Text style={S.empty}>{rtl?'لا توجد فروع بعد':'No stores added yet'}</Text>}
+      {['owner','admin','manager'].includes(activeMerchant.role)&&<>
+        {txt(rtl?'إضافة فرع':'Add a store',{fontSize:14,fontWeight:'900',marginTop:14,marginBottom:8})}
+        {field(merchantStoreName,setMerchantStoreName,rtl?'اسم الفرع':'Store name')}
+        {field(merchantStoreAddress,setMerchantStoreAddress,rtl?'العنوان (اختياري)':'Address (optional)')}
+        <View style={[S.row,{flexWrap:'wrap'}]}>{MARKETS.map(m=><Pressable key={m.code} accessibilityRole="button" accessibilityState={{selected:merchantStoreCountry===m.code}} onPress={()=>setMerchantStoreCountry(m.code)} style={{paddingHorizontal:9,paddingVertical:7,borderRadius:10,backgroundColor:merchantStoreCountry===m.code?C.teal:C.pale,marginRight:5,marginBottom:5}}><Text style={{fontSize:10,fontWeight:'800',color:merchantStoreCountry===m.code?C.white:C.teal}}>{m.code}</Text></Pressable>)}</View>
+        {button(rtl?'إنشاء فرع':'Create store',createMerchantStore)}
+      </>}
+    </View>}
     {activeMerchant&&<View style={[S.card,{marginTop:14}]}>
       {txt(rtl?'فريق العمل':'Team members',{fontSize:16,fontWeight:'900',marginBottom:8})}
       {merchantMembers.map(member=><View key={member.userId} style={{paddingVertical:10,borderBottomWidth:1,borderBottomColor:C.line}}>
