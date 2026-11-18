@@ -31,7 +31,7 @@ describe('merchant stores', () => {
     const h = makeService('viewer');
     await expect(h.service.createStore('viewer-1', 'merchant-1', {
       name: 'Branch', countryCode: 'AE',
-    } as any)).rejects.toBeInstanceOf(NotFoundException);
+    } as any)).rejects.toBeInstanceOf(ForbiddenException);
     expect(h.query).toHaveBeenCalledTimes(1);
   });
 
