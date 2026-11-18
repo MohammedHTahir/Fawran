@@ -5,13 +5,15 @@ import { randomBytes, randomUUID } from 'crypto';
 import { ForbiddenException } from '@nestjs/common';
 import { Pool } from 'pg';
 import { AuthGuard, AuthModule, AuthUser, CurrentUser } from '../auth/auth';
-import { PG_POOL, SYSTEM_PROVIDER_ACCOUNT } from '../db/db.module';
+import { PG_POOL, systemProviderAccount } from '../db/db.module';
 import { LEDGER_PORT, LedgerPort } from '../ledger/ledger.port';
 import { PAYMENT_PROVIDER, PaymentProvider, PayMethod, ProviderModule } from '../provider/provider';
+import { getMarketByCurrency } from '../markets/market-registry';
 
 class CreateLinkDto {
-  @IsInt() @Min(100) @Max(5_000_000) amount: number;
+  @IsInt() @Min(1) @Max(5_000_000) amount: number;
   @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsString() currency?: string;
 }
 class PayDto { @IsIn(['instapay', 'card', 'wallet']) method: PayMethod; }
 
@@ -21,11 +23,17 @@ export class LinksService {
     @Inject(PAYMENT_PROVIDER) private provider: PaymentProvider) {}
 
   async create(u: AuthUser, b: CreateLinkDto) {
+    const currency = (b.currency ?? u.defaultCurrency ?? 'EGP').trim().toUpperCase();
+    if (!getMarketByCurrency(currency)) throw new BadRequestException('Unsupported payment-link currency');
+    const account = currency === (u.defaultCurrency ?? 'EGP')
+      ? { id: u.accountId }
+      : (await this.pool.query('select id from accounts where owner_id=$1 and currency=$2', [u.id, currency])).rows[0];
+    if (!account) throw new NotFoundException(`Create a ${currency} wallet before creating a payment link`);
     const code = randomBytes(6).toString('base64url');
     await this.pool.query(
       'insert into payment_links (id, code, merchant_account, amount, description, currency) values ($1,$2,$3,$4,$5,$6)',
-      [randomUUID(), code, u.accountId, b.amount, b.description ?? null, 'EGP']);
-    return { code, amount: b.amount, description: b.description ?? null, status: 'open' };
+      [randomUUID(), code, account.id, b.amount, b.description ?? null, currency]);
+    return { code, amount: b.amount, currency, description: b.description ?? null, status: 'open', testOnly: true };
   }
 
   /** Public: what a payer sees. Never exposes the merchant's account id. */
@@ -38,15 +46,15 @@ export class LinksService {
   /** Public: payer without an app/account pays via the provider; funds land in the merchant's wallet. */
   async pay(code: string, method: PayMethod) {
     const metadata = await this.pool.query(
-      `select l.id,l.currency,l.merchant_id,m.status as merchant_status,m.kyb_status
+      `select l.id,l.currency,l.merchant_id,m.status as merchant_status,m.kyb_status,m.settlement_status
        from payment_links l left join merchants m on m.id=l.merchant_id where l.code=$1`, [code]);
     if (!metadata.rows[0]) throw new NotFoundException();
-    if (metadata.rows[0].currency !== 'EGP') {
-      throw new ConflictException('This currency is not yet enabled for checkout; provider orchestration is still in test-only rollout');
-    }
     if (metadata.rows[0].merchant_id &&
         (metadata.rows[0].merchant_status !== 'active' || metadata.rows[0].kyb_status !== 'approved')) {
       throw new ForbiddenException('Merchant KYB approval is required before checkout');
+    }
+    if (metadata.rows[0].merchant_id && metadata.rows[0].settlement_status !== 'enabled') {
+      throw new ConflictException('Merchant settlement is blocked pending licensed partner and market approvals');
     }
     // Claim the link atomically so two payers can't both pay it.
     const claim = await this.pool.query(
@@ -64,18 +72,17 @@ export class LinksService {
       }
       link = existing.rows[0];
     }
-    if (link.currency !== 'EGP') throw new ConflictException('Checkout currency is not enabled');
     const amount = Number(link.amount);
-    const ch = await this.provider.charge({ amount, method, reference: `link:${link.id}` });
+    const ch = await this.provider.charge({ amount, currency: link.currency, method, reference: `link:${link.id}` });
     if (!ch.ok) {
       await this.pool.query(`update payment_links set status='open' where id=$1`, [link.id]);
       throw new HttpException('Payment declined', 402);
     }
     // If this fails after a successful charge the link stays 'processing' for manual/automated reconciliation.
-    const t = await this.ledger.transfer({ from: SYSTEM_PROVIDER_ACCOUNT, to: link.merchant_account, amount,
-      idemKey: `link:${link.id}`, kind: 'link_payment', memo: ch.providerRef });
+    const t = await this.ledger.transfer({ from: systemProviderAccount(link.currency), to: link.merchant_account, amount,
+      currency: link.currency, idemKey: `link:${link.id}`, kind: 'link_payment', memo: ch.providerRef });
     await this.pool.query(`update payment_links set status='paid', paid_txn=$2 where id=$1`, [link.id, t.txnId]);
-    return { status: 'paid', txnId: t.txnId };
+    return { status: 'paid', txnId: t.txnId, currency: link.currency, testOnly: true, realMoney: false };
   }
 }
 
