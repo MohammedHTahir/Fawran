@@ -181,6 +181,7 @@ export class MerchantService {
     const client = await this.pool.connect();
     try {
       await client.query('begin');
+      await client.query('select id from merchants where id=$1 for update', [merchantId]);
       const actorRow = await client.query(
         'select role from merchant_members where merchant_id=$1 and user_id=$2 for update',
         [merchantId, actorUserId],
@@ -220,6 +221,7 @@ export class MerchantService {
     const client = await this.pool.connect();
     try {
       await client.query('begin');
+      await client.query('select id from merchants where id=$1 for update', [merchantId]);
       const actor = await client.query(
         'select role from merchant_members where merchant_id=$1 and user_id=$2 for update',
         [merchantId, actorUserId],
