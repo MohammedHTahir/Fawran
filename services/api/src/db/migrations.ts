@@ -545,7 +545,7 @@ alter table users add column if not exists country_code text not null default 'E
 alter table users add column if not exists default_currency text not null default 'EGP';
 -- Existing Egyptian national-format numbers are normalized to E.164 in place.
 update users set phone = '+20' || substring(phone from 2)
- where phone like '01%' and length(phone)=11;
+ where phone like '01_________';
 alter table users add constraint users_country_currency_pair_check
  check (
    (country_code='AE' and default_currency='AED') or
