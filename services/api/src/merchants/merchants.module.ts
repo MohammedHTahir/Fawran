@@ -45,6 +45,16 @@ class CreateCampaignDto {
   @IsInt() @Min(1) @Max(100_000) pointsPerMinor!: number;
   @IsOptional() @IsInt() @Min(1) maxPointsPerUser?: number;
 }
+class CreateMerchantStoreDto {
+  @IsString() @Length(2, 100) name!: string;
+  @IsString() @Matches(/^[A-Z]{2}$/) countryCode!: string;
+  @IsOptional() @IsString() @Length(0, 300) address?: string;
+}
+class UpdateMerchantStoreDto {
+  @IsOptional() @IsString() @Length(2, 100) name?: string;
+  @IsOptional() @IsString() @Length(0, 300) address?: string;
+  @IsOptional() @IsString() @IsIn(['active','suspended']) status?: 'active'|'suspended';
+}
 class CreateMerchantInvitationDto {
   @IsString() @Matches(/^\+[1-9]\d{7,14}$/) phone!: string;
   @IsString() @IsIn(['admin','manager','viewer']) role!: 'admin'|'manager'|'viewer';
@@ -161,6 +171,50 @@ export class MerchantService {
       if (error?.code !== '23505') throw error;
       return { currency, created: false, settlementStatus: 'blocked' };
     }
+  }
+
+  async createStore(userId: string, merchantId: string, body: CreateMerchantStoreDto) {
+    const merchant = await this.membership(userId, merchantId, ['owner','admin','manager']);
+    const countryCode = body.countryCode.trim().toUpperCase();
+    if (!getMarketProfile(countryCode)) throw new BadRequestException('Unsupported store market');
+    const id = randomUUID();
+    await this.pool.query(
+      `insert into merchant_stores(id,merchant_id,name,country_code,address,status)
+       values($1,$2,$3,$4,$5,'draft')`,
+      [id, merchantId, body.name.trim(), countryCode, body.address?.trim() || null],
+    );
+    return { storeId: id, merchantId, name: body.name.trim(), countryCode, address: body.address?.trim() || null, status: 'draft' };
+  }
+
+  async listStores(userId: string, merchantId: string) {
+    await this.membership(userId, merchantId);
+    const result = await this.pool.query(
+      `select id as "storeId",name,country_code as "countryCode",address,status,created_at as "createdAt"
+       from merchant_stores where merchant_id=$1 order by created_at desc`,
+      [merchantId],
+    );
+    return result.rows;
+  }
+
+  async updateStore(userId: string, merchantId: string, storeId: string, body: UpdateMerchantStoreDto) {
+    const merchant = await this.membership(userId, merchantId, ['owner','admin','manager']);
+    if (body.status && !['owner','admin'].includes(merchant.role)) {
+      throw new ForbiddenException('Only merchant owners and admins can change store status');
+    }
+    if (body.name === undefined && body.address === undefined && body.status === undefined) {
+      throw new BadRequestException('Provide at least one store field to update');
+    }
+    const result = await this.pool.query(
+      `update merchant_stores set
+         name=coalesce($3,name),
+         address=case when $4::boolean then $5 else address end,
+         status=coalesce($6,status)
+       where id=$1 and merchant_id=$2
+       returning id as "storeId",name,country_code as "countryCode",address,status,created_at as "createdAt"`,
+      [storeId, merchantId, body.name?.trim() ?? null, body.address !== undefined, body.address?.trim() || null, body.status ?? null],
+    );
+    if (!result.rows[0]) throw new NotFoundException('Merchant store not found');
+    return result.rows[0];
   }
 
   async createInvitation(actorUserId: string, merchantId: string, body: CreateMerchantInvitationDto) {
@@ -564,6 +618,20 @@ class MerchantController {
   @Get(':id') get(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.merchants.get(user.id, id); }
   @Post(':id/accounts') createAccount(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: CreateMerchantAccountDto) {
     return this.merchants.createAccount(user.id, id, body);
+  }
+  @Post(':id/stores') createStore(
+    @CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: CreateMerchantStoreDto,
+  ) {
+    return this.merchants.createStore(user.id, id, body);
+  }
+  @Get(':id/stores') listStores(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.merchants.listStores(user.id, id);
+  }
+  @Patch(':id/stores/:storeId') updateStore(
+    @CurrentUser() user: AuthUser, @Param('id') id: string, @Param('storeId') storeId: string,
+    @Body() body: UpdateMerchantStoreDto,
+  ) {
+    return this.merchants.updateStore(user.id, id, storeId, body);
   }
   @Post(':id/invitations') createInvitation(
     @CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: CreateMerchantInvitationDto,
