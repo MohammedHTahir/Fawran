@@ -57,7 +57,7 @@ export class PaymentIntentStore {
       [input.idempotencyKey],
     );
     const row = existing.rows[0];
-    if (!row || row.request_fingerprint !== input.requestFingerprint ||
+    if (!row || row.reference !== input.reference || row.request_fingerprint !== input.requestFingerprint ||
         Number(row.amount) !== input.amount || (row.currency ?? 'EGP') !== currency || row.method !== input.method ||
         (row.user_id ?? null) !== (input.userId ?? null)) {
       throw new ConflictException('Idempotency key was already used for a different payment intent');
@@ -65,7 +65,32 @@ export class PaymentIntentStore {
     return this.normalize(row);
   }
 
+  async get(id: string) {
+    const result = await this.pool.query(
+      `select id,reference,user_id,amount,currency,method,status,provider_name,provider_ref,ledger_txn_id
+         from payment_intents where id=$1`, [id],
+    );
+    if (!result.rows[0]) throw new NotFoundException('Payment intent not found');
+    return this.normalize(result.rows[0]);
+  }
+
+  async bindProvider(id: string, providerName: string, providerRef: string) {
+    const updated = await this.pool.query(
+      `update payment_intents set provider_name=$2,provider_ref=$3,updated_at=now()
+        where id=$1 and (provider_name is null or (provider_name=$2 and provider_ref=$3))
+        returning id`, [id, providerName, providerRef],
+    );
+    if (updated.rows[0]) return;
+    const existing = await this.get(id);
+    if (existing.provider_name !== providerName || existing.provider_ref !== providerRef) {
+      throw new ConflictException('Payment intent is already bound to a different provider reference');
+    }
+  }
+
   async recordProviderEvent(input: RecordProviderEventInput): Promise<{ inserted: boolean; eventId: string }> {
+    if (!/^[a-f0-9]{64}$/i.test(input.payloadSha256)) {
+      throw new ConflictException('Provider event payload digest must be a SHA-256 hex digest');
+    }
     const id = randomUUID();
     const inserted = await this.pool.query(
       `insert into provider_events
@@ -89,6 +114,20 @@ export class PaymentIntentStore {
       throw new ConflictException('Provider event ID was replayed with a different payload');
     }
     return { inserted: false, eventId: existing.rows[0].id };
+  }
+
+  async markProviderEventProcessed(eventId: string) {
+    await this.pool.query(
+      `update provider_events set status='processed',failure_code=null,processed_at=coalesce(processed_at,now())
+        where id=$1`, [eventId],
+    );
+  }
+
+  async markProviderEventFailed(eventId: string, failureCode: string) {
+    await this.pool.query(
+      `update provider_events set status='failed',failure_code=$2 where id=$1 and status<>'processed'`,
+      [eventId, failureCode],
+    );
   }
 
   async transition(id: string, next: PaymentIntentStatus) {
