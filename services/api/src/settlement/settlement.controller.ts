@@ -1,7 +1,8 @@
 import {
-  BadRequestException, Body, Controller, Get, Headers, IsOptional, Param, Post, UseGuards,
+  BadRequestException, Body, Controller, Get, Headers, Param, Post, UseGuards,
 } from '@nestjs/common';
-import { IsIn, IsInt, IsString, Length, Matches, Max, Min, ArrayMaxSize, ArrayMinSize, IsArray } from 'class-validator';
+import { IsIn, IsInt, IsString, Length, Matches, Max, Min, ArrayMaxSize, ArrayMinSize, IsArray, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { AuthGuard, AuthUser, CurrentUser } from '../auth/auth';
 import { FinanceAdminGuard } from '../admin/finance-admin.guard';
 import { SettlementService, TestSettlementLine } from './settlement.service';
@@ -28,7 +29,7 @@ class ImportTestSettlementDto {
   @IsString() @Length(4, 120) batchId!: string;
   @IsString() @Matches(/^[A-Z]{3}$/) currency!: string;
   @IsString() @Matches(/^\d{4}-\d{2}-\d{2}$/) settlementDate!: string;
-  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(500) lines!: TestSettlementLineDto[];
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(500) @ValidateNested({ each: true }) @Type(() => TestSettlementLineDto) lines!: TestSettlementLineDto[];
 }
 
 @Controller('payments/test')
