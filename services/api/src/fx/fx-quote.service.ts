@@ -74,8 +74,8 @@ export class FxQuoteService {
     const rate = rateResult.rows[0];
     if (!rate) throw new ConflictException('No test FX rate is configured for this currency pair');
 
-    const sourceScale = 10n ** BigInt(fromMarket.minorUnit);
-    const targetScale = 10n ** BigInt(toMarket.minorUnit);
+    const sourceScale = 10n ** BigInt(fromMarket.currencyMinorUnit);
+    const targetScale = 10n ** BigInt(toMarket.currencyMinorUnit);
     const numerator = BigInt(input.amountMinor) * BigInt(rate.rate_numerator) * targetScale;
     const denominator = BigInt(rate.rate_denominator) * sourceScale;
     const grossTarget = (numerator + denominator / 2n) / denominator;
