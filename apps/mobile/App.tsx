@@ -22,7 +22,17 @@ const T = {
 };
 const money = (n:number) => (n < 0 ? '-' : '') + Math.floor(Math.abs(n)/100).toLocaleString('en-US') + '.' + String(Math.abs(n)%100).padStart(2,'0');
 const parseMoney = (s:string):number|null => { const m = /^(\d{1,7})(?:\.(\d{1,2}))?$/.exec(s.trim()); if (!m) return null; const n = Number(m[1])*100 + Number((m[2]||'').padEnd(2,'0')); return Number.isSafeInteger(n) && n > 0 ? n : null; };
-const validPhone = (s:string) => /^(\+20|0020|0)1[0125]\d{8}$/.test(s.replace(/[\s-]/g,''));
+const validPhone = (s:string, countryCode:MarketCode='EG') => {
+  const value=s.replace(/[\\s()-]/g,'');
+  const patterns:Record<MarketCode,RegExp> = {
+    EG:/^(?:\\+20|0020|0)?1[0125]\\d{8}$/,
+    AE:/^(?:\\+971|00971|0)?5\\d{8}$/,
+    SA:/^(?:\\+966|00966|0)?5\\d{8}$/,
+    GB:/^(?:\\+44|0044|0)?7\\d{9}$/,
+    US:/^(?:\\+1|001)?[2-9]\\d{9}$/
+  };
+  return patterns[countryCode].test(value);
+};
 const makeKey = () => 'fawran-' + Date.now() + '-' + Math.random().toString(36).slice(2,12);
 let accessTokenCache: string | null = null;
 let onAuthExpired: (() => void) | null = null;
@@ -123,7 +133,7 @@ export default function App() {
   const setLanguage = async (l:Lang) => {setLang(l);await SecureStore.setItemAsync('fawran.lang',l);};
   const login = async () => { if(!validPhone(phone,countryCode)){Alert.alert(w.invalidPhone);return;} setBusy(true); try { if(!otpSent){await api('/auth/otp',null,'POST',{phone:phone.trim(),countryCode});setOtpSent(true);} else {const r=await api<{token:string;refreshToken:string;countryCode:MarketCode;defaultCurrency:string}>('/auth/verify',null,'POST',{phone:phone.trim(),code:otp,countryCode});accessTokenCache=r.token;setCountryCode(r.countryCode);setRecipientCountryCode(r.countryCode);setCurrency(r.defaultCurrency);await Promise.all([SecureStore.setItemAsync('fawran.token',r.token),SecureStore.setItemAsync('fawran.refreshToken',r.refreshToken),SecureStore.setItemAsync('fawran.phone',phone.trim()),SecureStore.setItemAsync('fawran.countryCode',r.countryCode),SecureStore.setItemAsync('fawran.defaultCurrency',r.defaultCurrency),SecureStore.setItemAsync('fawran.currency',r.defaultCurrency)]);setToken(r.token);} } catch(e){Alert.alert(w.generic,errorText(e,w));} finally{setBusy(false);} };
   const doTopup = async () => { if(currency!=='EGP'){Alert.alert(w.invalidRequest);return;} const n=parseMoney(amount); if(!n){Alert.alert(w.invalidAmount);return;} const fp=n+'|'+method; if(topupAttempt.current?.fp!==fp)topupAttempt.current={fp,key:makeKey()}; setBusy(true); try {await api('/wallet/topup',token,'POST',{amount:n,method},topupAttempt.current!.key);setTopup(false);setAmount('');topupAttempt.current=null;await refresh();} catch(e){Alert.alert(w.generic,errorText(e,w));} finally{setBusy(false);} };
-  const doSend = () => { const n=parseMoney(amount); if(!validPhone(to,recipientCountryCode)){Alert.alert(w.invalidPhone);return;} if(!n){Alert.alert(w.invalidAmount);return;} const fp=to.trim()+'|'+n+'|'+currency+'|'+note.trim(); if(transferAttempt.current?.fp!==fp)transferAttempt.current={fp,key:makeKey()}; Alert.alert(w.confirm,money(n)+' '+currency+'\n'+to,[{text:w.cancel,style:'cancel'},{text:w.send,onPress:async()=>{setBusy(true);try{await api('/transfers',token,'POST',{toPhone:to.trim(),countryCode:recipientCountryCode,amount:n,currency,...(note.trim()?{note:note.trim()}:{})},transferAttempt.current!.key);setReceipt({amount:n,currency,to:to.trim(),at:new Date().toISOString()});setPage('receipt');setAmount('');setTo('');setNote('');transferAttempt.current=null;await refresh();}catch(e){Alert.alert(w.generic,errorText(e,w));}finally{setBusy(false);}}}]); };
+  const doSend = () => { const n=parseMoney(amount); if(!validPhone(to,recipientCountryCode)){Alert.alert(w.invalidPhone);return;} if(!n){Alert.alert(w.invalidAmount);return;} const fp=recipientCountryCode+'|'+to.trim()+'|'+n+'|'+currency+'|'+note.trim(); if(transferAttempt.current?.fp!==fp)transferAttempt.current={fp,key:makeKey()}; Alert.alert(w.confirm,money(n)+' '+currency+'\n'+to,[{text:w.cancel,style:'cancel'},{text:w.send,onPress:async()=>{setBusy(true);try{await api('/transfers',token,'POST',{toPhone:to.trim(),countryCode:recipientCountryCode,amount:n,currency,...(note.trim()?{note:note.trim()}:{})},transferAttempt.current!.key);setReceipt({amount:n,currency,to:to.trim(),at:new Date().toISOString()});setPage('receipt');setAmount('');setTo('');setNote('');transferAttempt.current=null;await refresh();}catch(e){Alert.alert(w.generic,errorText(e,w));}finally{setBusy(false);}}}]); };
   const doLink = async () => {const n=parseMoney(linkAmount);if(!n){Alert.alert(w.invalidAmount);return;}setBusy(true);try{const r=await api<{code:string}>('/links',token,'POST',{amount:n,currency,...(description.trim()?{description:description.trim()}:{})});setLinkCode(r.code);}catch(e){Alert.alert(w.generic,errorText(e,w));}finally{setBusy(false);}};
   const logoutAll = async () => { try { await api('/auth/logout-all',token,'POST',{}); } catch {} await SecureStore.deleteItemAsync('fawran.token'); await SecureStore.deleteItemAsync('fawran.refreshToken'); await SecureStore.deleteItemAsync('fawran.phone'); accessTokenCache=null; setToken(null); setBalance(0); setTx([]); setSessions([]); setPage('tabs'); };
   const revokeSession = async (id:string) => { setBusy(true); try { await api('/auth/sessions/'+encodeURIComponent(id),token,'DELETE'); await refresh(); } catch(e) { Alert.alert(w.generic,errorText(e,w)); } finally { setBusy(false); } };
