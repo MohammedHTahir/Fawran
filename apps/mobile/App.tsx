@@ -357,7 +357,7 @@ export default function App() {
         {txt(store.countryCode+(store.address?' · '+store.address:''),{fontSize:11,color:C.muted,marginTop:3})}
         <View style={[S.row,{justifyContent:'space-between',marginTop:6}]}>
           {txt(store.status.toUpperCase(),{fontSize:10,color:store.status==='active'?C.teal:C.muted,fontWeight:'900'})}
-          {['owner','admin'].includes(activeMerchant.role)&&<Pressable disabled={busy||store.status==='suspended'} onPress={()=>void updateMerchantStoreStatus(store,store.status==='active'?'suspended':'active')}><Text style={{fontSize:11,fontWeight:'900',color:store.status==='active'?C.red:C.teal}}>{store.status==='active'?(rtl?'إيقاف':'Suspend'):(rtl?'تفعيل':'Activate')}</Text></Pressable>}
+          {['owner','admin'].includes(activeMerchant.role)&&<Pressable disabled={busy} onPress={()=>void updateMerchantStoreStatus(store,store.status==='active'?'suspended':'active')}><Text style={{fontSize:11,fontWeight:'900',color:store.status==='active'?C.red:C.teal}}>{store.status==='active'?(rtl?'إيقاف':'Suspend'):(rtl?'تفعيل':'Activate')}</Text></Pressable>}
         </View>
       </View>):<Text style={S.empty}>{rtl?'لا توجد فروع بعد':'No stores added yet'}</Text>}
       {['owner','admin','manager'].includes(activeMerchant.role)&&<>
