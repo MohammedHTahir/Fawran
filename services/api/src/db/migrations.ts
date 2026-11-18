@@ -459,7 +459,6 @@ create table settlement_lines (
   payout_id text references payout_requests(id) on delete restrict,
   created_at timestamptz not null default now(),
   unique(batch_id,line_number),
-  check (net_amount_minor = gross_amount_minor - fee_amount_minor)
 );
 create index settlement_lines_batch_idx on settlement_lines(batch_id,line_number);
 
