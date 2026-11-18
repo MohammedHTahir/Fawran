@@ -4,7 +4,7 @@ import { IsIn, IsOptional, IsString, Matches, MinLength } from 'class-validator'
 import { createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'crypto';
 import * as jwt from 'jsonwebtoken';
 import { Pool } from 'pg';
-import { parsePhoneNumberFromString, CountryCode } from 'libphonenumber-js';
+import { parsePhoneNumberFromString, type CountryCode } from 'libphonenumber-js';
 import { PG_POOL } from '../db/db.module';
 import { getMarketProfile } from '../markets/market-registry';
 
@@ -39,8 +39,8 @@ class UnconfiguredProductionSms implements SmsPort {
   async send() { throw new Error('No production SMS adapter configured. Configure an approved SMS provider before enabling OTP.'); }
 }
 
-/** Optional Twilio Programmable Messaging adapter. Egypt sender registration is
- * an external prerequisite; this class does not bypass carrier or legal approval. */
+/** Optional Twilio Programmable Messaging adapter. Country-specific sender registration
+ * and carrier approval remain external prerequisites. */
 export class TwilioSms implements SmsPort {
   static isConfigured() {
     return Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN &&
