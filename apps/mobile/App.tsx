@@ -15,6 +15,9 @@ type WalletSummary = { accountId:string; currency:string; balance:number; unit:s
 type RewardSummary = { unit:'POINTS'; pointsBalance:number; lifetimeEarnedPoints:number; tier:string; referralCode:string; history:Array<{id:string;kind:string;points:number;reference?:string|null;createdAt:string;expiresAt?:string|null}> };
 type MerchantSummary = { id:string; display_name:string; country_code:string; currency:string; kyb_status:string; status:string; role:string };
 type MerchantDetails = { merchantId:string; legalName:string; displayName:string; countryCode:string; currency:string; kybStatus:string; status:string; role:string; paymentsEnabled:boolean; accounts:Array<{currency:string;balance:number;settlementStatus:string}> };
+type MerchantMember = { userId:string; phone:string; role:'owner'|'admin'|'manager'|'viewer'; createdAt:string };
+type MerchantInvitation = { invitationId:string; invitedUserId:string; phone:string; role:'admin'|'manager'|'viewer'; status:string; expiresAt:string; createdAt:string };
+type MyMerchantInvitation = { invitationId:string; merchantId:string; merchantName:string; countryCode:string; role:string; status:string; expiresAt:string; createdAt:string; invitedByPhone:string };
 type AuthSession = { id:string; created_at:string; last_used_at:string|null; expires_at:string; is_current:boolean };
 type ApiError = Error & { status: number };
 const API = (process.env.EXPO_PUBLIC_API_URL || 'http://10.0.2.2:3000').replace(/\/$/, '');
@@ -139,6 +142,8 @@ export default function App() {
   const [receipt,setReceipt] = useState<{amount:number;currency:string;to:string;at:string}|null>(null);
   const [merchants,setMerchants] = useState<MerchantSummary[]>([]), [activeMerchant,setActiveMerchant] = useState<MerchantDetails|null>(null);
   const [merchantOffers,setMerchantOffers] = useState<any[]>([]), [merchantCampaigns,setMerchantCampaigns] = useState<any[]>([]);
+  const [merchantMembers,setMerchantMembers] = useState<MerchantMember[]>([]), [merchantInvitations,setMerchantInvitations] = useState<MerchantInvitation[]>([]), [myMerchantInvitations,setMyMerchantInvitations] = useState<MyMerchantInvitation[]>([]);
+  const [merchantInvitePhone,setMerchantInvitePhone] = useState(''), [merchantInviteRole,setMerchantInviteRole] = useState<'admin'|'manager'|'viewer'>('manager');
   const [merchantLegalName,setMerchantLegalName] = useState(''), [merchantDisplayName,setMerchantDisplayName] = useState('');
   const [registrationNumber,setRegistrationNumber] = useState(''), [merchantLinkAmount,setMerchantLinkAmount] = useState('');
   const [merchantOfferName,setMerchantOfferName] = useState(''), [merchantCampaignName,setMerchantCampaignName] = useState('');
@@ -159,16 +164,78 @@ export default function App() {
     if(!token)return;
     setBusy(true);
     try {
-      const [details,offers,campaigns] = await Promise.all([
-        api<MerchantDetails>('/merchants/'+id,token),
+      const details = await api<MerchantDetails>('/merchants/'+id,token);
+      const [offers,campaigns,members,invitations] = await Promise.all([
         api<any[]>('/merchants/'+id+'/offers',token),
-        api<any[]>('/merchants/'+id+'/campaigns',token)
+        api<any[]>('/merchants/'+id+'/campaigns',token),
+        api<MerchantMember[]>('/merchants/'+id+'/members',token),
+        ['owner','admin'].includes(details.role)
+          ? api<MerchantInvitation[]>('/merchants/'+id+'/invitations',token)
+          : Promise.resolve([] as MerchantInvitation[])
       ]);
       setActiveMerchant(details);setMerchantOffers(offers);setMerchantCampaigns(campaigns);
+      setMerchantMembers(members);setMerchantInvitations(invitations);
     } catch(e) { Alert.alert(w.generic,errorText(e,w)); }
     finally { setBusy(false); }
   };
-  const openBusiness = () => { setPage('business'); if(merchants[0])void loadMerchant(merchants[0].id); };
+  const loadMyMerchantInvitations = async () => {
+    if(!token)return;
+    try { setMyMerchantInvitations(await api<MyMerchantInvitation[]>('/merchant-invitations/me',token)); }
+    catch(e) { Alert.alert(w.generic,errorText(e,w)); }
+  };
+  const openBusiness = () => {
+    setPage('business');
+    void loadMyMerchantInvitations();
+    if(merchants[0])void loadMerchant(activeMerchant?.merchantId||merchants[0].id);
+    else { setActiveMerchant(null);setMerchantMembers([]);setMerchantInvitations([]); }
+  };
+  const inviteMerchantMember = async () => {
+    if(!activeMerchant||!/^\\+[1-9]\\d{7,14}$/.test(merchantInvitePhone.trim())) {
+      Alert.alert(w.invalidRequest,rtl?'استخدم رقمًا دوليًا بصيغة +2010...':'Enter a phone number in international format, e.g. +2010...');
+      return;
+    }
+    setBusy(true);
+    try {
+      await api('/merchants/'+activeMerchant.merchantId+'/invitations',token,'POST',{phone:merchantInvitePhone.trim(),role:merchantInviteRole});
+      setMerchantInvitePhone('');
+      await loadMerchant(activeMerchant.merchantId);
+      Alert.alert(rtl?'تم إرسال الدعوة':'Invitation created',rtl?'ستظهر الدعوة في صندوق الوارد داخل تطبيق فوران للمستخدم.':'The invitation will appear in the recipient’s Fawran inbox.');
+    } catch(e) { Alert.alert(w.generic,errorText(e,w)); }
+    finally { setBusy(false); }
+  };
+  const acceptMerchantInvitation = async (invitationId:string,merchantId:string) => {
+    setBusy(true);
+    try {
+      await api('/merchant-invitations/'+invitationId+'/accept',token,'POST');
+      await refresh();
+      await loadMerchant(merchantId);
+      await loadMyMerchantInvitations();
+    } catch(e) { Alert.alert(w.generic,errorText(e,w)); }
+    finally { setBusy(false); }
+  };
+  const revokeMerchantInvitation = async (invitationId:string) => {
+    if(!activeMerchant)return;
+    setBusy(true);
+    try { await api('/merchants/'+activeMerchant.merchantId+'/invitations/'+invitationId,token,'DELETE'); await loadMerchant(activeMerchant.merchantId); }
+    catch(e) { Alert.alert(w.generic,errorText(e,w)); }
+    finally { setBusy(false); }
+  };
+  const changeMerchantMemberRole = async (member:MerchantMember,role:'admin'|'manager'|'viewer') => {
+    if(!activeMerchant)return;
+    setBusy(true);
+    try { await api('/merchants/'+activeMerchant.merchantId+'/members/'+member.userId+'/role',token,'PATCH',{role}); await loadMerchant(activeMerchant.merchantId); }
+    catch(e) { Alert.alert(w.generic,errorText(e,w)); }
+    finally { setBusy(false); }
+  };
+  const removeMerchantMember = async (member:MerchantMember) => {
+    if(!activeMerchant)return;
+    Alert.alert(rtl?'إزالة العضو':'Remove member',member.phone,[{text:w.cancel,style:'cancel'},{text:rtl?'إزالة':'Remove',style:'destructive',onPress:async()=>{
+      setBusy(true);
+      try { await api('/merchants/'+activeMerchant.merchantId+'/members/'+member.userId,token,'DELETE'); await loadMerchant(activeMerchant.merchantId); }
+      catch(e) { Alert.alert(w.generic,errorText(e,w)); }
+      finally { setBusy(false); }
+    }}]);
+  };
   const createMerchant = async () => {
     if(!merchantLegalName.trim()||!merchantDisplayName.trim()){Alert.alert(w.invalidRequest);return;}
     const market=MARKETS.find(m=>m.code===countryCode)!;
@@ -253,7 +320,31 @@ export default function App() {
   const shell=(children:React.ReactNode)=><View style={[S.shell,{direction:rtl?'rtl':'ltr'}]}><StatusBar barStyle="dark-content"/>{children}</View>;
   const cardVisual=()=><View accessible accessibilityLabel="Fawran digital wallet illustration" style={S.visualWrap}><View style={S.visualOrb}/><View style={[S.visualCard,S.visualCardBack]}/><View style={S.visualCard}><View style={S.visualTop}><Text style={S.visualBrand}>FAWRAN</Text><Text style={S.visualSpark}>✦</Text></View><Text style={S.visualDots}>••••  ••••  ••••  2048</Text><View style={S.visualBottom}><Text style={S.visualCaption}>MOVE MONEY WITH CLARITY</Text><Text style={S.visualArrow}>↗</Text></View></View><View style={S.visualCoin}><Text style={S.visualCoinText}>ف</Text></View></View>;
   if(!token)return shell(<ScrollView contentContainerStyle={S.login}><Pressable accessibilityRole="button" onPress={()=>void setLanguage(rtl?'en':'ar')}><Text style={S.lang}>{rtl?'English':'العربية'}</Text></Pressable><View style={S.loginIntro}><View style={S.logo}><Text style={{color:C.lime,fontSize:32,fontWeight:'900'}}>ف</Text></View><Text style={S.brand}>{w.app}</Text>{txt(w.tagline,{color:C.muted,fontSize:16,marginBottom:8})}</View>{cardVisual()}<View style={S.loginForm}>{label(w.phone)}{<View style={[S.row,{flexWrap:'wrap',marginBottom:12}]}>{MARKETS.map(m=><Pressable key={m.code} accessibilityRole="button" accessibilityState={{selected:countryCode===m.code}} onPress={()=>{setCountryCode(m.code);setRecipientCountryCode(m.code);setOtpSent(false);setOtp('');}} style={{paddingHorizontal:11,paddingVertical:8,borderRadius:12,backgroundColor:countryCode===m.code?C.teal:C.pale}}><Text style={{fontSize:11,fontWeight:'900',color:countryCode===m.code?C.white:C.teal}}>{m.label} · {m.code}</Text></Pressable>)}</View>}{field(phone,setPhone,countryCode==='EG'?'010 0000 0000':countryCode==='AE'||countryCode==='SA'?'050 000 0000':countryCode==='GB'?'07123 456789':'202 555 0123','phone-pad')}{otpSent&&<>{label(w.otp)}{field(otp,setOtp,'000000','numeric',6)}{__DEV__&&txt(w.dev,{fontSize:12,color:C.muted})}</>}{button(otpSent?w.verify:w.sendCode,login)}<Text style={S.notice}>{w.prototype}</Text></View></ScrollView>);
-  if(page==='business')return shell(<ScrollView contentContainerStyle={S.page}>{header(w.business)}{merchants.length>0&&<View style={S.card}>{txt(w.business,{fontSize:14,fontWeight:'900',marginBottom:8})}<View style={[S.row,{flexWrap:'wrap'}]}>{merchants.map(m=><Pressable key={m.id} accessibilityRole="button" accessibilityState={{selected:activeMerchant?.merchantId===m.id}} onPress={()=>void loadMerchant(m.id)} style={{padding:10,borderRadius:12,backgroundColor:activeMerchant?.merchantId===m.id?C.teal:C.pale,margin:3}}><Text style={{fontSize:11,fontWeight:'900',color:activeMerchant?.merchantId===m.id?C.white:C.teal}}>{m.display_name}</Text></Pressable>)}</View></View>}{!activeMerchant?<View style={S.formCard}>{txt(w.createBusiness,{fontSize:18,fontWeight:'900',marginBottom:12})}{label(w.legalName)}{field(merchantLegalName,setMerchantLegalName,'Bekheet Trading LLC')}{label(w.displayName)}{field(merchantDisplayName,setMerchantDisplayName,'My business')}{txt(countryCode+' · '+(MARKETS.find(m=>m.code===countryCode)?.currency||currency),{fontSize:12,color:C.muted,marginVertical:8})}{button(w.createBusiness,createMerchant)}<Text style={S.notice}>{w.businessNote}</Text></View>:<><View style={S.card}>{txt(activeMerchant.displayName,{fontSize:20,fontWeight:'900'})}{txt(activeMerchant.legalName,{fontSize:12,color:C.muted,marginTop:4})}{detailLine(w.kyb,activeMerchant.kybStatus)}{detailLine(w.settlement,activeMerchant.accounts[0]?.settlementStatus||'blocked')}{detailLine(w.currency,activeMerchant.currency)}{detailLine(w.status,activeMerchant.status)}<View style={S.sectionHeading}>{txt(w.wallet,{fontSize:14,fontWeight:'900'})}</View>{activeMerchant.accounts.map(a=><View key={a.currency} style={[S.txrow,{flexDirection:rtl?'row-reverse':'row'}]}><Text style={{flex:1,fontWeight:'800'}}>{a.currency}</Text><Text style={{fontWeight:'900'}}>{money(a.balance)} {a.currency}</Text></View>)}{button(w.createMerchantAccount,createMerchantAccount,true)}</View>{activeMerchant.kybStatus!=='approved'?<View style={S.formCard}>{txt(w.submitKyb,{fontSize:16,fontWeight:'900',marginBottom:8})}{label(w.registrationNumber)}{field(registrationNumber,setRegistrationNumber,'REG-123456')}{button(w.submitKyb,submitKyb)}<Text style={S.notice}>{w.businessNote}</Text></View>:<><View style={S.formCard}>{txt(w.createMerchantLink,{fontSize:16,fontWeight:'900',marginBottom:8})}{label(w.amount)}{field(merchantLinkAmount,setMerchantLinkAmount,'0.00','decimal-pad')}{button(w.createMerchantLink,createMerchantPaymentLink)}{merchantLinkCode?button(w.copy,()=>void Clipboard.setStringAsync(merchantLinkCode).then(()=>Alert.alert(w.copied)),true):null}</View><View style={S.formCard}>{txt(w.createOffer,{fontSize:16,fontWeight:'900',marginBottom:8})}{field(merchantOfferName,setMerchantOfferName,w.offerName)}{button(w.createOffer,createMerchantOffer)}</View><View style={S.formCard}>{txt(w.createCampaign,{fontSize:16,fontWeight:'900',marginBottom:8})}{field(merchantCampaignName,setMerchantCampaignName,w.campaignName)}{field(merchantCampaignBudget,setMerchantCampaignBudget,w.campaignBudget,'numeric')}{button(w.createCampaign,createMerchantCampaign)}</View></> }<View style={S.card}>{txt(w.offerName,{fontSize:14,fontWeight:'900'})}{merchantOffers.length?merchantOffers.map(o=><View key={o.id} style={S.txrow}>{txt(o.name,{fontWeight:'800'})}{txt(o.status,{fontSize:10,color:C.muted})}</View>):<Text style={S.empty}>{w.none}</Text>}{txt(w.campaignName,{fontSize:14,fontWeight:'900',marginTop:12})}{merchantCampaigns.length?merchantCampaigns.map(o=><View key={o.id} style={S.txrow}>{txt(o.name,{fontWeight:'800'})}{txt(o.status,{fontSize:10,color:C.muted})}</View>):<Text style={S.empty}>{w.none}</Text>}</View></>}<Text style={S.notice}>{w.businessNote}</Text></ScrollView>);
+  if(page==='business')return shell(<ScrollView contentContainerStyle={S.page}>{header(w.business)}
+    {myMerchantInvitations.length>0&&<View style={[S.card,{marginBottom:14}]}>{txt(rtl?'دعوات الأعمال الواردة':'Business invitations',{fontSize:16,fontWeight:'900',marginBottom:8})}{myMerchantInvitations.map(inv=><View key={inv.invitationId} style={{paddingVertical:10,borderBottomWidth:1,borderBottomColor:C.line}}>{txt(inv.merchantName,{fontWeight:'900'})}{txt((rtl?'الدور: ':'Role: ')+inv.role+' · '+(rtl?'من ':'From ')+inv.invitedByPhone,{fontSize:11,color:C.muted,marginTop:3})}{button(rtl?'قبول الدعوة':'Accept invitation',()=>void acceptMerchantInvitation(inv.invitationId,inv.merchantId))}</View>)}</View>}{merchants.length>0&&<View style={S.card}>{txt(w.business,{fontSize:14,fontWeight:'900',marginBottom:8})}<View style={[S.row,{flexWrap:'wrap'}]}>{merchants.map(m=><Pressable key={m.id} accessibilityRole="button" accessibilityState={{selected:activeMerchant?.merchantId===m.id}} onPress={()=>void loadMerchant(m.id)} style={{padding:10,borderRadius:12,backgroundColor:activeMerchant?.merchantId===m.id?C.teal:C.pale,margin:3}}><Text style={{fontSize:11,fontWeight:'900',color:activeMerchant?.merchantId===m.id?C.white:C.teal}}>{m.display_name}</Text></Pressable>)}</View></View>}{!activeMerchant?<View style={S.formCard}>{txt(w.createBusiness,{fontSize:18,fontWeight:'900',marginBottom:12})}{label(w.legalName)}{field(merchantLegalName,setMerchantLegalName,'Bekheet Trading LLC')}{label(w.displayName)}{field(merchantDisplayName,setMerchantDisplayName,'My business')}{txt(countryCode+' · '+(MARKETS.find(m=>m.code===countryCode)?.currency||currency),{fontSize:12,color:C.muted,marginVertical:8})}{button(w.createBusiness,createMerchant)}<Text style={S.notice}>{w.businessNote}</Text></View>:<><View style={S.card}>{txt(activeMerchant.displayName,{fontSize:20,fontWeight:'900'})}{txt(activeMerchant.legalName,{fontSize:12,color:C.muted,marginTop:4})}{detailLine(w.kyb,activeMerchant.kybStatus)}{detailLine(w.settlement,activeMerchant.accounts[0]?.settlementStatus||'blocked')}{detailLine(w.currency,activeMerchant.currency)}{detailLine(w.status,activeMerchant.status)}<View style={S.sectionHeading}>{txt(w.wallet,{fontSize:14,fontWeight:'900'})}</View>{activeMerchant.accounts.map(a=><View key={a.currency} style={[S.txrow,{flexDirection:rtl?'row-reverse':'row'}]}><Text style={{flex:1,fontWeight:'800'}}>{a.currency}</Text><Text style={{fontWeight:'900'}}>{money(a.balance)} {a.currency}</Text></View>)}{button(w.createMerchantAccount,createMerchantAccount,true)}</View>{activeMerchant.kybStatus!=='approved'?<View style={S.formCard}>{txt(w.submitKyb,{fontSize:16,fontWeight:'900',marginBottom:8})}{label(w.registrationNumber)}{field(registrationNumber,setRegistrationNumber,'REG-123456')}{button(w.submitKyb,submitKyb)}<Text style={S.notice}>{w.businessNote}</Text></View>:<><View style={S.formCard}>{txt(w.createMerchantLink,{fontSize:16,fontWeight:'900',marginBottom:8})}{label(w.amount)}{field(merchantLinkAmount,setMerchantLinkAmount,'0.00','decimal-pad')}{button(w.createMerchantLink,createMerchantPaymentLink)}{merchantLinkCode?button(w.copy,()=>void Clipboard.setStringAsync(merchantLinkCode).then(()=>Alert.alert(w.copied)),true):null}</View><View style={S.formCard}>{txt(w.createOffer,{fontSize:16,fontWeight:'900',marginBottom:8})}{field(merchantOfferName,setMerchantOfferName,w.offerName)}{button(w.createOffer,createMerchantOffer)}</View><View style={S.formCard}>{txt(w.createCampaign,{fontSize:16,fontWeight:'900',marginBottom:8})}{field(merchantCampaignName,setMerchantCampaignName,w.campaignName)}{field(merchantCampaignBudget,setMerchantCampaignBudget,w.campaignBudget,'numeric')}{button(w.createCampaign,createMerchantCampaign)}</View></> }<View style={S.card}>{txt(w.offerName,{fontSize:14,fontWeight:'900'})}{merchantOffers.length?merchantOffers.map(o=><View key={o.id} style={S.txrow}>{txt(o.name,{fontWeight:'800'})}{txt(o.status,{fontSize:10,color:C.muted})}</View>):<Text style={S.empty}>{w.none}</Text>}{txt(w.campaignName,{fontSize:14,fontWeight:'900',marginTop:12})}{merchantCampaigns.length?merchantCampaigns.map(o=><View key={o.id} style={S.txrow}>{txt(o.name,{fontWeight:'800'})}{txt(o.status,{fontSize:10,color:C.muted})}</View>):<Text style={S.empty}>{w.none}</Text>}</View></>}
+    {activeMerchant&&<View style={[S.card,{marginTop:14}]}>
+      {txt(rtl?'فريق العمل':'Team members',{fontSize:16,fontWeight:'900',marginBottom:8})}
+      {merchantMembers.map(member=><View key={member.userId} style={{paddingVertical:10,borderBottomWidth:1,borderBottomColor:C.line}}>
+        {txt(member.phone,{fontWeight:'800'})}
+        {txt(member.role.toUpperCase(),{fontSize:10,color:C.muted,marginVertical:5})}
+        {activeMerchant.role==='owner'&&member.role!=='owner'&&<View style={[S.row,{flexWrap:'wrap'}]}>
+          {(['admin','manager','viewer'] as const).map(role=><Pressable key={role} disabled={busy} onPress={()=>void changeMerchantMemberRole(member,role)} style={{paddingHorizontal:9,paddingVertical:6,borderRadius:10,backgroundColor:member.role===role?C.teal:C.pale,marginRight:5,marginBottom:5}}><Text style={{fontSize:10,fontWeight:'800',color:member.role===role?C.white:C.teal}}>{role}</Text></Pressable>)}
+          <Pressable disabled={busy} onPress={()=>removeMerchantMember(member)} style={{paddingHorizontal:9,paddingVertical:6,borderRadius:10,backgroundColor:'#FCEEEE'}}><Text style={{fontSize:10,fontWeight:'800',color:C.red}}>{rtl?'إزالة':'Remove'}</Text></Pressable>
+        </View>}
+        {activeMerchant.role==='admin'&&['manager','viewer'].includes(member.role)&&member.role!=='owner'&&<View style={[S.row,{flexWrap:'wrap'}]}>
+          {(['manager','viewer'] as const).map(role=><Pressable key={role} disabled={busy} onPress={()=>void changeMerchantMemberRole(member,role)} style={{paddingHorizontal:9,paddingVertical:6,borderRadius:10,backgroundColor:member.role===role?C.teal:C.pale,marginRight:5}}><Text style={{fontSize:10,fontWeight:'800',color:member.role===role?C.white:C.teal}}>{role}</Text></Pressable>)}
+          <Pressable disabled={busy} onPress={()=>removeMerchantMember(member)} style={{paddingHorizontal:9,paddingVertical:6,borderRadius:10,backgroundColor:'#FCEEEE'}}><Text style={{fontSize:10,fontWeight:'800',color:C.red}}>{rtl?'إزالة':'Remove'}</Text></Pressable>
+        </View>}
+      </View>)}
+      {['owner','admin'].includes(activeMerchant.role)&&<>
+        {txt(rtl?'دعوة عضو جديد':'Invite a member',{fontSize:14,fontWeight:'900',marginTop:16,marginBottom:8})}
+        {field(merchantInvitePhone,setMerchantInvitePhone,'+201001234567','phone-pad')}
+        <View style={[S.row,{flexWrap:'wrap'}]}>{(activeMerchant.role==='owner'?['admin','manager','viewer']:['manager','viewer']).map(role=><Pressable key={role} accessibilityRole="button" accessibilityState={{selected:merchantInviteRole===role}} onPress={()=>setMerchantInviteRole(role as any)} style={{paddingHorizontal:12,paddingVertical:8,borderRadius:12,backgroundColor:merchantInviteRole===role?C.teal:C.pale,marginRight:6}}><Text style={{fontSize:11,fontWeight:'800',color:merchantInviteRole===role?C.white:C.teal}}>{role}</Text></Pressable>)}</View>
+        {button(rtl?'إرسال الدعوة':'Create invitation',inviteMerchantMember)}
+        {merchantInvitations.length>0&&<>{txt(rtl?'الدعوات المعلقة':'Pending invitations',{fontSize:14,fontWeight:'900',marginTop:18,marginBottom:8})}{merchantInvitations.filter(x=>x.status==='pending').map(inv=><View key={inv.invitationId} style={[S.txrow,{flexDirection:rtl?'row-reverse':'row'}]}><View style={{flex:1}}>{txt(inv.phone,{fontWeight:'800'})}{txt(inv.role+' · '+new Date(inv.expiresAt).toLocaleDateString(),{fontSize:10,color:C.muted})}</View><Pressable disabled={busy} onPress={()=>void revokeMerchantInvitation(inv.invitationId)}><Text style={{color:C.red,fontSize:11,fontWeight:'800'}}>{rtl?'إلغاء':'Revoke'}</Text></Pressable></View>)}</>}
+      </>}
+    </View>}
+    <Text style={S.notice}>{w.businessNote}</Text></ScrollView>);
 
   if(page==='send')return shell(<ScrollView contentContainerStyle={S.page}>{header(w.send)}<View style={S.formCard}>{txt(w.recipient,{fontSize:13,fontWeight:'900',marginBottom:8})}{<View style={[S.row,{flexWrap:'wrap',marginBottom:10}]}>{MARKETS.map(m=><Pressable key={m.code} accessibilityRole="button" accessibilityState={{selected:recipientCountryCode===m.code}} onPress={()=>setRecipientCountryCode(m.code)} style={{paddingHorizontal:10,paddingVertical:7,borderRadius:11,backgroundColor:recipientCountryCode===m.code?C.teal:C.pale}}><Text style={{fontSize:10,fontWeight:'900',color:recipientCountryCode===m.code?C.white:C.teal}}>{m.code}</Text></Pressable>)}</View>}{field(to,setTo,'010 0000 0000','phone-pad')}{txt(w.amount,{fontSize:13,fontWeight:'900',marginBottom:8})}{field(amount,setAmount,'0.00','decimal-pad')}{parseMoney(amount)?<View style={S.amountPreview}><Text style={S.amountPreviewValue}>{money(parseMoney(amount)!)} <Text style={S.metricCurrency}>{currency}</Text></Text></View>:null}{txt(w.note,{fontSize:13,fontWeight:'900',marginBottom:8})}{field(note,setNote,w.note)}<View style={S.inlineInfo}><Text style={S.inlineInfoIcon}>✓</Text>{txt(w.free,{fontSize:12,color:C.muted})}</View>{button(w.send,doSend)}</View></ScrollView>);
   if(page==='link')return shell(<ScrollView contentContainerStyle={S.page}>{header(w.link)}{!linkCode?<View style={S.formCard}>{txt(w.amount,{fontSize:13,fontWeight:'900',marginBottom:8})}{field(linkAmount,setLinkAmount,'0.00','decimal-pad')}{parseMoney(linkAmount)?<View style={S.amountPreview}><Text style={S.amountPreviewValue}>{money(parseMoney(linkAmount)!)} <Text style={S.metricCurrency}>{currency}</Text></Text></View>:null}{txt(w.desc,{fontSize:13,fontWeight:'900',marginBottom:8})}{field(description,setDescription,w.desc)}{button(w.create,doLink)}<Text style={S.notice}>{w.linkNote}</Text></View>:<View style={S.card}>{txt(w.ready,{fontSize:20,fontWeight:'900',textAlign:'center'})}<Text style={S.code}>{linkCode}</Text>{button(w.copy,()=>void Clipboard.setStringAsync(linkCode).then(()=>Alert.alert(w.copied)))}{button(w.share,()=>void Share.share({message:w.ready+': '+linkCode}),true)}<Text style={S.notice}>{w.linkNote}</Text></View>}</ScrollView>);
