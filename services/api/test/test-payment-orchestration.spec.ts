@@ -1,11 +1,11 @@
 import { INestApplication } from '@nestjs/common';
-import { createHmac } from 'crypto';
 import request from 'supertest';
 import { makeApp } from './helpers';
 import { signTestProviderWebhook } from '../src/payments/test-payment.controller';
 
 describe('test payment orchestration', () => {
   let app: INestApplication;
+  let pool: any;
   let token: string;
   const secret = 'fawran-test-provider-secret-at-least-32-bytes-long';
   const timestamp = () => Math.floor(Date.now() / 1000);
@@ -24,7 +24,7 @@ describe('test payment orchestration', () => {
 
   beforeAll(async () => {
     process.env.TEST_PROVIDER_WEBHOOK_SECRET = secret;
-    ({ app } = await makeApp());
+    ({ app, pool } = await makeApp());
     const phone = '+20 100 000 0099';
     await request(app.getHttpServer()).post('/auth/otp').send({ phone }).expect(201);
     const login = await request(app.getHttpServer()).post('/auth/verify').send({ phone, code: '000000' }).expect(201);
@@ -55,8 +55,8 @@ describe('test payment orchestration', () => {
     const replay = await postEvent(event).expect(201);
     expect(replay.body).toMatchObject({ status: 'succeeded', duplicate: true, ledgerPosted: false });
 
-    const stored = (await (app as any).getHttpAdapter().getInstance().locals.pool?.query?.('select status,ledger_txn_id from payment_intents where id=$1',[created.body.intentId]))?.rows?.[0];
-    if (stored) expect(stored).toEqual({ status: 'succeeded', ledger_txn_id: null });
+    const stored = (await pool.query('select status,ledger_txn_id from payment_intents where id=$1',[created.body.intentId])).rows[0];
+    expect(stored).toEqual({ status: 'succeeded', ledger_txn_id: null });
   });
 
   it('rejects missing/invalid signatures and stale timestamps', async () => {
