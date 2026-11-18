@@ -13,7 +13,7 @@ describe('test payment orchestration', () => {
     ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
     ...(key ? { 'Idempotency-Key': key } : {}),
   });
-  const postEvent = async (event: Record<string, string>, at = timestamp(), signatureOverride?: string) => {
+  const postEvent = (event: Record<string, string>, at = timestamp(), signatureOverride?: string) => {
     const raw = Buffer.from(JSON.stringify(event));
     const signature = signatureOverride ?? signTestProviderWebhook(raw, secret, at);
     return request(app.getHttpServer()).post('/webhooks/test-provider')
