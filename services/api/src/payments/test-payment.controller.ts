@@ -4,7 +4,6 @@ import {
 } from '@nestjs/common';
 import { IsIn, IsInt, IsString, Matches, Max, Min } from 'class-validator';
 import { createHmac, timingSafeEqual } from 'crypto';
-import { Request } from 'express';
 import { AuthGuard, AuthUser, CurrentUser } from '../auth/auth';
 import { getMarketByCurrency } from '../markets/market-registry';
 import { TestPaymentService, TestProviderEvent } from './test-payment.service';
@@ -69,7 +68,7 @@ export class TestProviderWebhookController {
 
   @Post()
   async receive(
-    @Req() request: RawBodyRequest<Request>,
+    @Req() request: RawBodyRequest<any>,
     @Body() body: TestProviderEventDto,
     @Headers('x-test-provider-signature') signature?: string,
   ) {
