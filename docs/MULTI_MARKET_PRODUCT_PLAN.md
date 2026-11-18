@@ -109,24 +109,13 @@ For each market independently:
 
 The repository now has a multi-market test foundation, merged to `main`:
 
-- **Markets and wallets:** AE/AED, EG/EGP, SA/SAR, GB/GBP and US/USD are catalogued. New test users can onboard with market-specific phone formats stored as E.164 and receive a default-currency wallet. Existing Egyptian users are migrated to E.164 and retain EGP. Additional currency wallets are separate accounts; currency is immutable per account and transfers remain same-currency only.
-- **Mobile:** market selection at OTP onboarding, recipient-country selection for phone transfers, currency wallet selection and currency-aware personal payment links. The customer app is not yet a complete multi-market banking experience.
-- **Rewards and merchants:** backend foundations exist for a separate points ledger, campaigns/referrals/tiers, merchant registration, KYB, business accounts, offers and merchant payment links. Full merchant and rewards management interfaces still need work.
+- **Markets and wallets:** AE/AED, EG/EGP, SA/SAR, GB/GBP and US/USD are catalogued. Test users can onboard with market-specific phone formats stored as E.164 and receive a default-currency wallet. Existing Egyptian users are migrated to E.164 and retain EGP. Additional currency wallets are separate accounts; currency is immutable per account and transfers remain same-currency only.
+- **Mobile:** market selection at OTP onboarding, recipient-country selection for phone transfers, currency wallet selection and currency-aware personal payment links.
+- **Rewards:** separate non-cash POINTS ledger, referral codes/claims, tiers and points history are exposed in the mobile app. Points cannot be converted to wallet cash.
+- **Merchants:** backend and mobile flows cover business registration, KYB metadata submission, business currency accounts, offers, payment links and points campaigns. Actual document uploads are not implemented. Offers remain drafts and campaigns remain pending funding until their respective review/funding workflows are completed.
 - **Payments:** test payment intents, signed/deduplicated test webhooks, idempotent test refunds, blocked payout requests and finance-admin settlement reconciliation. Personal links can use isolated simulated provider accounts by currency. Merchant checkout and settlement remain blocked.
-- **FX:** synthetic, admin-configured test rates can produce five-minute preview quotes using integer arithmetic. There is no FX execution endpoint, live rate source or ledger conversion.
+- **FX:** synthetic, admin-configured test rates can produce five-minute preview quotes using integer arithmetic. There is no FX execution endpoint, live rate source, funds reservation or ledger conversion.
 - **Operations:** support cases, compliance risk cases, role-scoped admin APIs, audit history and maker-checker market evidence gates are available. These are workflow controls, not local legal or regulatory determinations.
 - **Safety:** all markets still return `realMoneyEnabled: false`. Test rates, test provider flows, successful CI, Blnk sandbox integration or verified evidence gates cannot activate live money movement.
 
-This is a meaningful backend and mobile foundation, not a production-ready wallet or licensed financial service. Remaining work includes licensed PSP/bank adapters, live signed webhooks, real refunds/payouts/settlement formats, jurisdiction-specific KYC/AML and consumer-protection rules, merchant/rewards user interfaces, QR/invoice flows, localization, security review, operational runbooks and written approvals for each launch market.
-
-## Exit criteria for any live market
-
-A market can only be proposed for activation after all of the following are complete and signed off:
-1. Written legal opinion and regulator/partner confirmation for the exact business model.
-2. Executed licensed-provider agreements and documented funds flow.
-3. Completed KYC/KYB, AML/CFT, sanctions, fraud and consumer-protection allocation.
-4. Production provider adapters, signed webhooks and provider-side idempotency.
-5. Automated settlement reconciliation and tested refunds/reversals/disputes.
-6. Independent security review and production operational readiness.
-7. Market-specific terms, privacy notices, support and incident runbooks.
-8. Explicit code-reviewed market activation release. Environment variables alone must not activate real-money movement.
+This is a meaningful backend and mobile foundation, not a production-ready wallet or licensed financial service. Remaining work includes a merchant/admin web console, actual KYB document upload and verification, QR rendering, offer publishing and campaign funding/issuance, licensed PSP/bank adapters, live signed webhooks, real refunds/payouts/settlement formats, jurisdiction-specific KYC/AML and consumer-protection rules, localization, security review, operational runbooks and written approvals for each launch market.
