@@ -4,6 +4,7 @@ import { assertMigrationsCurrent } from './migrations';
 
 export const PG_POOL = 'PG_POOL';
 export const SYSTEM_PROVIDER_ACCOUNT = 'sys:provider';
+export const systemProviderAccount = (currency: string) => currency.toUpperCase() === 'EGP' ? SYSTEM_PROVIDER_ACCOUNT : `sys:provider:${currency.toUpperCase()}`;
 
 @Injectable()
 class DbSchemaGuard implements OnModuleInit, OnModuleDestroy {
