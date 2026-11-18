@@ -10,6 +10,7 @@ import { RewardsModule } from './rewards/rewards.module';
 import { MerchantModule } from './merchants/merchants.module';
 import { SettlementModule } from './settlement/settlement.module';
 import { OperationsModule } from './operations/operations.module';
+import { FxModule } from './fx/fx.module';
 
-@Module({ imports: [DbModule, LedgerModule, AuthModule, WalletModule, LinksModule, HealthModule, PaymentsModule, RewardsModule, MerchantModule, SettlementModule, OperationsModule] })
+@Module({ imports: [DbModule, LedgerModule, AuthModule, WalletModule, LinksModule, HealthModule, PaymentsModule, RewardsModule, MerchantModule, SettlementModule, OperationsModule, FxModule] })
 export class AppModule {}
