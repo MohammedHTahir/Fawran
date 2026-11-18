@@ -191,6 +191,10 @@ export class MerchantService {
         [merchantId, inviteeId],
       );
       if (existingMember.rows[0]) throw new ConflictException('This user is already a merchant member');
+      await client.query(
+        "update merchant_invitations set status='expired',updated_at=now() where merchant_id=$1 and invited_user_id=$2 and status='pending' and expires_at<=now()",
+        [merchantId, inviteeId],
+      );
       const id = randomUUID();
       await client.query(
         `insert into merchant_invitations(id,merchant_id,invited_user_id,invited_by,role,status,expires_at)
