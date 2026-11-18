@@ -567,8 +567,7 @@ insert into accounts(id,kind,currency) values
   ('sys:provider:USD','system','USD')
 on conflict(id) do nothing;
 `,
-  },
-  , {
+  }, {
     version: 13,
     name: 'test_only_fx_rates_and_quotes',
     sql: `
