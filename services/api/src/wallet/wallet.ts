@@ -16,6 +16,7 @@ class TransferDto {
   @IsInt() @Min(1) @Max(LIMITS.perTransfer) amount: number;
   @IsOptional() @IsString() note?: string;
   @IsOptional() @IsString() currency?: string;
+  @IsOptional() @IsString() countryCode?: string;
 }
 class CreateWalletDto {
   @IsString() currency: string;
@@ -73,27 +74,28 @@ export class WalletController {
   }
 
   @Get('wallet')
-  async wallet(@CurrentUser() u: AuthUser, @Query('currency') requestedCurrency = 'EGP') {
-    const currency = requestedCurrency.trim().toUpperCase();
+  async wallet(@CurrentUser() u: AuthUser, @Query('currency') requestedCurrency?: string) {
+    const currency = (requestedCurrency ?? u.defaultCurrency ?? 'EGP').trim().toUpperCase();
     const market = getMarketByCurrency(currency);
     if (!market) throw new BadRequestException('Unsupported wallet currency');
-    const accountId = currency === 'EGP' ? u.accountId : await this.accountForCurrency(u.id, currency);
+    const accountId = currency === (u.defaultCurrency ?? 'EGP') ? u.accountId : await this.accountForCurrency(u.id, currency);
     return { accountId, balance: await this.ledger.balance(accountId), currency, unit: 'minor' };
   }
 
   @Get('transactions')
-  async transactions(@CurrentUser() u: AuthUser, @Query('currency') requestedCurrency = 'EGP') {
-    const currency = requestedCurrency.trim().toUpperCase();
+  async transactions(@CurrentUser() u: AuthUser, @Query('currency') requestedCurrency?: string) {
+    const currency = (requestedCurrency ?? u.defaultCurrency ?? 'EGP').trim().toUpperCase();
     if (!getMarketByCurrency(currency)) throw new BadRequestException('Unsupported wallet currency');
-    const accountId = currency === 'EGP' ? u.accountId : await this.accountForCurrency(u.id, currency);
+    const accountId = currency === (u.defaultCurrency ?? 'EGP') ? u.accountId : await this.accountForCurrency(u.id, currency);
     return this.ledger.history(accountId);
   }
 
   @Post('wallet/topup')
   async topup(@CurrentUser() u: AuthUser, @Body() b: TopupDto, @Headers('idempotency-key') key?: string) {
-    const k = `${u.id}:topup:${requireKey(key)}`;
+    const egpAccount = u.defaultCurrency === 'EGP' ? u.accountId : await this.accountForCurrency(u.id, 'EGP');
+    const k = `${u.id}:topup:EGP:${requireKey(key)}`;
     const fingerprint = createHash('sha256').update(JSON.stringify({
-      userId: u.id, amount: b.amount, method: b.method,
+      userId: u.id, amount: b.amount, method: b.method, currency: 'EGP',
     })).digest('hex');
 
     // Fail closed for transactions created by the earlier prototype, which have
@@ -123,7 +125,7 @@ export class WalletController {
     }
     if (attempt.status === 'failed') throw new BadRequestException('This top-up attempt failed; use a new idempotency key');
     if (attempt.status === 'succeeded' && attempt.ledger_txn_id) {
-      return { txnId: attempt.ledger_txn_id, replayed: true, balance: await this.ledger.balance(u.accountId) };
+      return { txnId: attempt.ledger_txn_id, replayed: true, currency: 'EGP', balance: await this.ledger.balance(egpAccount) };
     }
 
     const ch = await this.provider.charge({ amount: b.amount, method: b.method, reference: k });
@@ -137,22 +139,22 @@ export class WalletController {
     // crashes after charging, a retry must receive the same provider result and
     // the ledger must post at most once.
     const t = await this.ledger.transfer({
-      from: SYSTEM_PROVIDER_ACCOUNT, to: u.accountId, amount: b.amount,
+      from: SYSTEM_PROVIDER_ACCOUNT, to: egpAccount, amount: b.amount,
       idemKey: k, kind: 'topup', memo: ch.providerRef,
     });
     await this.pool.query(
       `update payment_attempts set status='succeeded', provider_ref=$2, ledger_txn_id=$3, updated_at=now()
        where idempotency_key=$1`,
       [k, ch.providerRef, t.txnId]);
-    return { txnId: t.txnId, replayed: t.replayed || reserve.rowCount === 0, balance: await this.ledger.balance(u.accountId) };
+    return { txnId: t.txnId, replayed: t.replayed || reserve.rowCount === 0, currency: 'EGP', balance: await this.ledger.balance(egpAccount) };
   }
 
   @Post('transfers')
   async transfer(@CurrentUser() u: AuthUser, @Body() b: TransferDto, @Headers('idempotency-key') key?: string) {
-    const phone = normalizePhone(b.toPhone);
-    const currency = (b.currency ?? 'EGP').trim().toUpperCase();
+    const phone = normalizePhone(b.toPhone, b.countryCode ?? u.countryCode ?? 'EG');
+    const currency = (b.currency ?? u.defaultCurrency ?? 'EGP').trim().toUpperCase();
     if (!getMarketByCurrency(currency)) throw new BadRequestException('Unsupported transfer currency');
-    const fromAccount = currency === 'EGP' ? u.accountId : await this.accountForCurrency(u.id, currency);
+    const fromAccount = currency === (u.defaultCurrency ?? 'EGP') ? u.accountId : await this.accountForCurrency(u.id, currency);
     const r = await this.pool.query(
       'select a.id from users x join accounts a on a.owner_id=x.id where x.phone=$1 and a.currency=$2', [phone, currency]);
     if (!r.rows[0]) throw new NotFoundException('Recipient does not have a wallet in this currency');
