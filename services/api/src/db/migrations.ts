@@ -537,6 +537,36 @@ create table market_gate_reviews (
 );
 create index market_gate_reviews_status_idx on market_gate_reviews(country_code,status);
 `,
+  }, {
+    version: 11,
+    name: 'multi_market_user_phone_and_default_currency',
+    sql: `
+alter table users add column if not exists country_code text not null default 'EG';
+alter table users add column if not exists default_currency text not null default 'EGP';
+-- Existing Egyptian national-format numbers are normalized to E.164 in place.
+update users set phone = '+20' || substring(phone from 2)
+ where phone like '01_________';
+alter table users add constraint users_country_currency_pair_check
+ check (
+   (country_code='AE' and default_currency='AED') or
+   (country_code='EG' and default_currency='EGP') or
+   (country_code='SA' and default_currency='SAR') or
+   (country_code='GB' and default_currency='GBP') or
+   (country_code='US' and default_currency='USD')
+ );
+create unique index if not exists users_phone_e164_unique on users(phone);
+`,
+  }, {
+    version: 12,
+    name: 'currency_specific_test_provider_accounts',
+    sql: `
+insert into accounts(id,kind,currency) values
+  ('sys:provider:AED','system','AED'),
+  ('sys:provider:SAR','system','SAR'),
+  ('sys:provider:GBP','system','GBP'),
+  ('sys:provider:USD','system','USD')
+on conflict(id) do nothing;
+`,
   },
 ] as const;
 
@@ -564,9 +594,6 @@ export async function runMigrations(pool: Pool): Promise<{ applied: number[]; cu
             try {
               await client.query(constraint.sql);
             } catch (error) {
-              // pg-mem can omit already-installed constraints from its
-              // information_schema view. Ignore only a duplicate of this
-              // exact named constraint; all other migration errors fail closed.
               const message = error instanceof Error ? error.message : String(error);
               if (!message.includes(constraint.name) || !/already exists|duplicate/i.test(message)) throw error;
             }
