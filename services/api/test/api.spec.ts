@@ -154,7 +154,7 @@ describe('API flow', () => {
     const user = (await pool.query('select id from users where phone=$1', [normalizePhone('01000000001')])).rows[0];
     await pool.query(
       "update payment_attempts set status='processing', ledger_txn_id=null where idempotency_key=$1",
-      [`${user.id}:topup:${key}`],
+      [`${user.id}:topup:EGP:${key}`],
     );
 
     const recovered = await request(s).post('/wallet/topup').set(h(alice, key))
@@ -169,6 +169,19 @@ describe('API flow', () => {
     expect(attempt).toEqual({ status: 'succeeded', ledger_txn_id: first.body.txnId });
   });
 
+  it('creates and pays a personal payment link in a non-default currency using its isolated test provider account', async () => {
+    const s = app.getHttpServer();
+    const wallet = await request(s).post('/wallets').set(h(alice)).send({ currency: 'AED' }).expect(201);
+    expect(wallet.body.currency).toBe('AED');
+    const before = (await request(s).get('/wallet?currency=AED').set(h(alice))).body.balance;
+    const link = (await request(s).post('/links').set(h(alice))
+      .send({ amount: 2_750, currency: 'AED', description: 'AED test payment link' }).expect(201)).body;
+    expect(link.currency).toBe('AED');
+    const paid = await request(s).post(`/links/${link.code}/pay`).send({ method: 'card' }).expect(201);
+    expect(paid.body).toMatchObject({ status: 'paid', currency: 'AED', testOnly: true, realMoney: false });
+    expect((await request(s).get('/wallet?currency=AED').set(h(alice))).body.balance).toBe(before + 2_750);
+  });
+
   it('recovers a payment link after the ledger posts but before the link is marked paid', async () => {
     const s = app.getHttpServer();
     const before = (await request(s).get('/wallet').set(h(bob))).body.balance;
@@ -181,7 +194,7 @@ describe('API flow', () => {
     const recovered = await request(s).post(`/links/${link.code}/pay`)
       .send({ method: 'instapay' }).expect(201);
 
-    expect(recovered.body).toEqual({ status: 'paid', txnId: first.body.txnId });
+    expect(recovered.body).toMatchObject({ status: 'paid', txnId: first.body.txnId, currency: 'EGP', testOnly: true, realMoney: false });
     expect((await request(s).get('/wallet').set(h(bob))).body.balance).toBe(before + 3_300);
     expect((await request(s).get(`/links/${link.code}`)).body.status).toBe('paid');
   });
