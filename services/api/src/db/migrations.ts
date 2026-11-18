@@ -568,6 +568,50 @@ insert into accounts(id,kind,currency) values
 on conflict(id) do nothing;
 `,
   },
+  , {
+    version: 13,
+    name: 'test_only_fx_rates_and_quotes',
+    sql: `
+create table test_fx_rates (
+  from_currency text not null check (from_currency in ('AED','EGP','SAR','GBP','USD')),
+  to_currency text not null check (to_currency in ('AED','EGP','SAR','GBP','USD')),
+  rate_numerator bigint not null check (rate_numerator > 0),
+  rate_denominator bigint not null check (rate_denominator > 0),
+  fee_bps integer not null default 0 check (fee_bps between 0 and 10000),
+  source_label text not null,
+  active boolean not null default true,
+  updated_by text not null references users(id) on delete restrict,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key(from_currency,to_currency),
+  check (from_currency <> to_currency)
+);
+
+create table fx_quotes (
+  id text primary key,
+  user_id text not null references users(id) on delete restrict,
+  from_currency text not null check (from_currency in ('AED','EGP','SAR','GBP','USD')),
+  to_currency text not null check (to_currency in ('AED','EGP','SAR','GBP','USD')),
+  source_amount_minor bigint not null check (source_amount_minor > 0),
+  gross_target_amount_minor bigint not null check (gross_target_amount_minor >= 0),
+  fee_target_amount_minor bigint not null check (fee_target_amount_minor >= 0),
+  net_target_amount_minor bigint not null check (net_target_amount_minor >= 0),
+  rate_numerator bigint not null check (rate_numerator > 0),
+  rate_denominator bigint not null check (rate_denominator > 0),
+  fee_bps integer not null check (fee_bps between 0 and 10000),
+  rate_source text not null,
+  idempotency_key text not null unique,
+  request_fingerprint text not null,
+  status text not null default 'quoted' check (status in ('quoted','expired')),
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  check (from_currency <> to_currency),
+  check (gross_target_amount_minor = fee_target_amount_minor + net_target_amount_minor)
+);
+create index fx_quotes_user_idx on fx_quotes(user_id,created_at desc);
+create index fx_quotes_expiry_idx on fx_quotes(status,expires_at);
+`,
+  },
 ] as const;
 
 /** Run as an explicit deployment step, never during API startup. */
