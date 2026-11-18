@@ -459,7 +459,7 @@ create table settlement_lines (
   refund_id text references payment_refunds(id) on delete restrict,
   payout_id text references payout_requests(id) on delete restrict,
   created_at timestamptz not null default now(),
-  unique(batch_id,line_number),
+  unique(batch_id,line_number)
 );
 create index settlement_lines_batch_idx on settlement_lines(batch_id,line_number);
 
