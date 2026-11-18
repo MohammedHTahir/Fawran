@@ -396,6 +396,7 @@ create table payment_refunds (
   user_id text not null references users(id) on delete restrict,
   amount bigint not null check (amount > 0),
   currency text not null check (currency in ('AED','EGP','SAR','GBP','USD')),
+  reason text not null,
   idempotency_key text not null unique,
   request_fingerprint text not null,
   status text not null default 'created' check (status in ('created','pending','succeeded','failed','under_review')),
