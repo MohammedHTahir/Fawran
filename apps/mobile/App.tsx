@@ -23,15 +23,30 @@ const T = {
 const money = (n:number) => (n < 0 ? '-' : '') + Math.floor(Math.abs(n)/100).toLocaleString('en-US') + '.' + String(Math.abs(n)%100).padStart(2,'0');
 const parseMoney = (s:string):number|null => { const m = /^(\d{1,7})(?:\.(\d{1,2}))?$/.exec(s.trim()); if (!m) return null; const n = Number(m[1])*100 + Number((m[2]||'').padEnd(2,'0')); return Number.isSafeInteger(n) && n > 0 ? n : null; };
 const validPhone = (s:string, countryCode:MarketCode='EG') => {
-  const value=s.replace(/[\\s()-]/g,'');
-  const patterns:Record<MarketCode,RegExp> = {
-    EG:/^(?:\\+20|0020|0)?1[0125]\\d{8}$/,
-    AE:/^(?:\\+971|00971|0)?5\\d{8}$/,
-    SA:/^(?:\\+966|00966|0)?5\\d{8}$/,
-    GB:/^(?:\\+44|0044|0)?7\\d{9}$/,
-    US:/^(?:\\+1|001)?[2-9]\\d{9}$/
+  const raw=s.trim();
+  const digits=raw.replace(/[^0-9]/g,'');
+  const rules:Record<MarketCode,{dial:string;length:number;first:string;second?:string;localZero:boolean}> = {
+    EG:{dial:'20',length:10,first:'1',second:'0125',localZero:true},
+    AE:{dial:'971',length:9,first:'5',localZero:true},
+    SA:{dial:'966',length:9,first:'5',localZero:true},
+    GB:{dial:'44',length:10,first:'7',localZero:true},
+    US:{dial:'1',length:10,first:'23456789',localZero:false}
   };
-  return patterns[countryCode].test(value);
+  const rule=rules[countryCode];
+  let national=digits;
+  if(raw.startsWith('+')) {
+    if(!digits.startsWith(rule.dial)) return false;
+    national=digits.slice(rule.dial.length);
+  } else if(raw.startsWith('00')) {
+    if(!digits.startsWith('00'+rule.dial)) return false;
+    national=digits.slice(2+rule.dial.length);
+  } else if(rule.localZero && national.startsWith('0')) {
+    national=national.slice(1);
+  } else if(!rule.localZero && national.startsWith(rule.dial) && national.length===rule.dial.length+rule.length) {
+    national=national.slice(rule.dial.length);
+  }
+  if(national.length!==rule.length || !rule.first.includes(national[0]??'')) return false;
+  return !rule.second || rule.second.includes(national[1]??'');
 };
 const makeKey = () => 'fawran-' + Date.now() + '-' + Math.random().toString(36).slice(2,12);
 let accessTokenCache: string | null = null;
