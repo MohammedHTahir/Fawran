@@ -15,6 +15,9 @@ Status: merchant onboarding and KYB workflow foundation implemented. Merchant se
 
 - `POST /merchants` — register a business.
 - `GET /merchants/me` — list the user's merchant memberships.
+- `GET /merchants/:id/members` — list members and their merchant-scoped roles.
+- `PATCH /merchants/:id/members/:userId/role` — update a member's role.
+- `DELETE /merchants/:id/members/:userId` — remove a member.
 - `GET /merchants/:id` — merchant profile and business account balances.
 - `POST /merchants/:id/accounts` — create another currency account.
 - `POST /merchants/:id/kyb/submit` — submit KYB metadata.
@@ -47,7 +50,7 @@ Available roles: `super_admin`, `compliance_admin`, `support_admin`, `finance_ad
 ## Remaining work
 
 - Secure KYB document upload, verification and retention controls.
-- Merchant team invitation and role management.
+- Merchant team invitations are not implemented; members must already have Fawran accounts. Merchant-scoped role management is implemented: owners can assign admin/manager/viewer; admins can manage manager/viewer only. The owner cannot be demoted or removed, and users cannot change or remove their own membership.
 - Store locations, QR presentation and merchant-facing dashboard UI.
 - Partner-funded balance reservation, payment capture, refunds, settlement and payouts.
 - Campaign approval, budget reservation, spend caps, reversals and rewards fulfilment.

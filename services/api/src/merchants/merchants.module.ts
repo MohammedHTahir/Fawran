@@ -2,8 +2,8 @@ import {
   ArrayMaxSize, ArrayMinSize, IsArray, IsIn, IsInt, IsOptional, IsString, Length, Matches, Max, Min,
 } from 'class-validator';
 import {
-  BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Inject,
-  Injectable, Module, NotFoundException, Param, Post, UseGuards,
+  BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, Inject,
+  Injectable, Module, NotFoundException, Param, Patch, Post, UseGuards,
 } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'crypto';
 import { Pool } from 'pg';
@@ -44,6 +44,9 @@ class CreateCampaignDto {
   @IsInt() @Min(1) @Max(100_000_000_000) budgetMinor!: number;
   @IsInt() @Min(1) @Max(100_000) pointsPerMinor!: number;
   @IsOptional() @IsInt() @Min(1) maxPointsPerUser?: number;
+}
+class UpdateMerchantMemberRoleDto {
+  @IsString() @IsIn(['admin','manager','viewer']) role!: 'admin'|'manager'|'viewer';
 }
 class KybDecisionDto {
   @IsString() @IsIn(['approved','rejected','needs_info']) decision!: 'approved'|'rejected'|'needs_info';
@@ -153,6 +156,99 @@ export class MerchantService {
     } catch (error: any) {
       if (error?.code !== '23505') throw error;
       return { currency, created: false, settlementStatus: 'blocked' };
+    }
+  }
+
+  async listMembers(userId: string, merchantId: string) {
+    await this.membership(userId, merchantId);
+    const result = await this.pool.query(
+      `select mm.user_id as "userId", u.phone, mm.role, mm.created_at as "createdAt"
+       from merchant_members mm join users u on u.id=mm.user_id
+       where mm.merchant_id=$1 order by case mm.role when 'owner' then 0 when 'admin' then 1 when 'manager' then 2 else 3 end, mm.created_at asc`,
+      [merchantId],
+    );
+    return result.rows;
+  }
+
+  async updateMemberRole(
+    actorUserId: string, merchantId: string, targetUserId: string, body: UpdateMerchantMemberRoleDto,
+  ) {
+    if (actorUserId === targetUserId) throw new BadRequestException('You cannot change your own merchant role');
+    const actor = await this.membership(actorUserId, merchantId, ['owner','admin']);
+    if (actor.role !== 'owner' && body.role === 'admin') {
+      throw new ForbiddenException('Only the merchant owner can assign admin access');
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('select id from merchants where id=$1 for update', [merchantId]);
+      const actorRow = await client.query(
+        'select role from merchant_members where merchant_id=$1 and user_id=$2 for update',
+        [merchantId, actorUserId],
+      );
+      const target = await client.query(
+        'select role from merchant_members where merchant_id=$1 and user_id=$2 for update',
+        [merchantId, targetUserId],
+      );
+      if (!actorRow.rows[0] || !['owner','admin'].includes(actorRow.rows[0].role)) {
+        throw new ForbiddenException('Insufficient merchant permissions');
+      }
+      if (!target.rows[0]) throw new NotFoundException('Merchant member not found');
+      if (target.rows[0].role === 'owner') throw new ForbiddenException('The merchant owner role cannot be changed');
+      if (actorRow.rows[0].role !== 'owner' && target.rows[0].role === 'admin') {
+        throw new ForbiddenException('Only the merchant owner can manage admin access');
+      }
+      if (actorRow.rows[0].role !== 'owner' && body.role === 'admin') {
+        throw new ForbiddenException('Only the merchant owner can assign admin access');
+      }
+      await client.query(
+        'update merchant_members set role=$3 where merchant_id=$1 and user_id=$2',
+        [merchantId, targetUserId, body.role],
+      );
+      await client.query('commit');
+      return { merchantId, userId: targetUserId, role: body.role };
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async removeMember(actorUserId: string, merchantId: string, targetUserId: string) {
+    if (actorUserId === targetUserId) throw new BadRequestException('You cannot remove yourself from the merchant');
+    await this.membership(actorUserId, merchantId, ['owner','admin']);
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('select id from merchants where id=$1 for update', [merchantId]);
+      const actor = await client.query(
+        'select role from merchant_members where merchant_id=$1 and user_id=$2 for update',
+        [merchantId, actorUserId],
+      );
+      const target = await client.query(
+        'select role from merchant_members where merchant_id=$1 and user_id=$2 for update',
+        [merchantId, targetUserId],
+      );
+      if (!actor.rows[0] || !['owner','admin'].includes(actor.rows[0].role)) {
+        throw new ForbiddenException('Insufficient merchant permissions');
+      }
+      if (!target.rows[0]) throw new NotFoundException('Merchant member not found');
+      if (target.rows[0].role === 'owner') throw new ForbiddenException('The merchant owner cannot be removed');
+      if (actor.rows[0].role !== 'owner' && target.rows[0].role === 'admin') {
+        throw new ForbiddenException('Only the merchant owner can remove an admin');
+      }
+      await client.query(
+        'delete from merchant_members where merchant_id=$1 and user_id=$2',
+        [merchantId, targetUserId],
+      );
+      await client.query('commit');
+      return { merchantId, userId: targetUserId, removed: true };
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
     }
   }
 
@@ -303,6 +399,20 @@ class MerchantController {
   @Get(':id') get(@CurrentUser() user: AuthUser, @Param('id') id: string) { return this.merchants.get(user.id, id); }
   @Post(':id/accounts') createAccount(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: CreateMerchantAccountDto) {
     return this.merchants.createAccount(user.id, id, body);
+  }
+  @Get(':id/members') listMembers(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.merchants.listMembers(user.id, id);
+  }
+  @Patch(':id/members/:userId/role') updateMemberRole(
+    @CurrentUser() user: AuthUser, @Param('id') id: string, @Param('userId') userId: string,
+    @Body() body: UpdateMerchantMemberRoleDto,
+  ) {
+    return this.merchants.updateMemberRole(user.id, id, userId, body);
+  }
+  @Delete(':id/members/:userId') removeMember(
+    @CurrentUser() user: AuthUser, @Param('id') id: string, @Param('userId') userId: string,
+  ) {
+    return this.merchants.removeMember(user.id, id, userId);
   }
   @Post(':id/kyb/submit') submitKyb(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: SubmitKybDto) {
     return this.merchants.submitKyb(user.id, id, body);
