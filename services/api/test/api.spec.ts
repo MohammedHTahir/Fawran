@@ -164,7 +164,7 @@ describe('API flow', () => {
     expect((await request(s).get('/wallet').set(h(alice))).body.balance).toBe(before + 4_200);
     const attempt = (await pool.query(
       'select status, ledger_txn_id from payment_attempts where idempotency_key=$1',
-      [`${user.id}:topup:${key}`],
+      [`${user.id}:topup:EGP:${key}`],
     )).rows[0];
     expect(attempt).toEqual({ status: 'succeeded', ledger_txn_id: first.body.txnId });
   });
