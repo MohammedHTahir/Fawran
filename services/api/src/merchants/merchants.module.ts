@@ -46,7 +46,7 @@ class CreateCampaignDto {
   @IsOptional() @IsInt() @Min(1) maxPointsPerUser?: number;
 }
 class CreateMerchantInvitationDto {
-  @IsString() @Matches(/^\\+[1-9]\\d{7,14}$/) phone!: string;
+  @IsString() @Matches(/^\+[1-9]\d{7,14}$/) phone!: string;
   @IsString() @IsIn(['admin','manager','viewer']) role!: 'admin'|'manager'|'viewer';
 }
 class UpdateMerchantMemberRoleDto {
