@@ -183,6 +183,8 @@ alter table payment_links add column if not exists currency text not null defaul
 alter table payment_links add constraint payment_links_currency_code_check
   check (currency in ('AED','EGP','SAR','GBP','USD'));
 alter table payment_intents drop constraint if exists payment_intents_currency_check;
+-- pg-mem auto-names the inline legacy EGP-only check differently from PostgreSQL.
+alter table payment_intents drop constraint if exists payment_intents_constraint_2;
 alter table payment_intents add constraint payment_intents_currency_code_check
   check (currency in ('AED','EGP','SAR','GBP','USD'));
 create index if not exists accounts_owner_currency_idx on accounts(owner_id, currency);

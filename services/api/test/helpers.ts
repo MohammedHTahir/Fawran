@@ -11,7 +11,7 @@ export async function makeApp() {
   const mod = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(PG_POOL).useValue(pool).compile();
   await runMigrations(pool);
-  const app = mod.createNestApplication();
+  const app = mod.createNestApplication({ rawBody: true });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   await app.init();
   return { app, pool };

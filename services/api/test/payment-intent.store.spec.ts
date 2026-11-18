@@ -12,9 +12,9 @@ describe('PaymentIntentStore', () => {
   });
 
   it('creates a durable intent using integer minor units', async () => {
-    (pool.query as jest.Mock).mockResolvedValueOnce({
-      rows: [{ id: 'intent-1', amount: '2500', status: 'created' }],
-    });
+    (pool.query as jest.Mock)
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: 'intent-1', amount: '2500', status: 'created' }] });
     const result = await store.create({
       idempotencyKey: 'user:funding:abc12345',
       reference: 'funding-abc12345',
@@ -28,12 +28,10 @@ describe('PaymentIntentStore', () => {
   });
 
   it('returns the existing intent for a matching idempotent retry', async () => {
-    (pool.query as jest.Mock)
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{
-        id: 'intent-1', amount: '2500', method: 'card', user_id: 'user-1',
-        request_fingerprint: 'fingerprint',
-      }] });
+    (pool.query as jest.Mock).mockResolvedValueOnce({ rows: [{
+      id: 'intent-1', amount: '2500', method: 'card', user_id: 'user-1',
+      request_fingerprint: 'fingerprint',
+    }] });
     const result = await store.create({
       idempotencyKey: 'user:funding:abc12345',
       reference: 'funding-new-reference-is-ignored',
@@ -46,12 +44,10 @@ describe('PaymentIntentStore', () => {
   });
 
   it('rejects an idempotency key reused with a different request', async () => {
-    (pool.query as jest.Mock)
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{
-        id: 'intent-1', amount: '2500', method: 'card', user_id: 'user-1',
-        request_fingerprint: 'original',
-      }] });
+    (pool.query as jest.Mock).mockResolvedValueOnce({ rows: [{
+      id: 'intent-1', amount: '2500', method: 'card', user_id: 'user-1',
+      request_fingerprint: 'original',
+    }] });
     await expect(store.create({
       idempotencyKey: 'user:funding:abc12345',
       reference: 'funding-abc12345',
@@ -63,12 +59,10 @@ describe('PaymentIntentStore', () => {
   });
 
   it('treats currency as part of the idempotent payment-intent request', async () => {
-    (pool.query as jest.Mock)
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{
-        id: 'intent-aed', amount: '2500', currency: 'AED', method: 'card', user_id: 'user-1',
-        request_fingerprint: 'same-fingerprint',
-      }] });
+    (pool.query as jest.Mock).mockResolvedValueOnce({ rows: [{
+      id: 'intent-aed', amount: '2500', currency: 'AED', method: 'card', user_id: 'user-1',
+      request_fingerprint: 'same-fingerprint',
+    }] });
     await expect(store.create({
       idempotencyKey: 'user:funding:currency-01',
       reference: 'funding-currency-01',
@@ -81,9 +75,7 @@ describe('PaymentIntentStore', () => {
   });
 
   it('records provider events once and treats same-digest retries as duplicates', async () => {
-    (pool.query as jest.Mock)
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ id: 'event-1', payload_sha256: 'a'.repeat(64) }] });
+    (pool.query as jest.Mock).mockResolvedValueOnce({ rows: [{ id: 'event-1', payload_sha256: 'a'.repeat(64) }] });
     const result = await store.recordProviderEvent({
       providerName: 'example-psp',
       providerEventId: 'evt-1',
@@ -94,9 +86,7 @@ describe('PaymentIntentStore', () => {
   });
 
   it('rejects a provider event ID replayed with a different digest', async () => {
-    (pool.query as jest.Mock)
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ id: 'event-1', payload_sha256: 'a'.repeat(64) }] });
+    (pool.query as jest.Mock).mockResolvedValueOnce({ rows: [{ id: 'event-1', payload_sha256: 'a'.repeat(64) }] });
     await expect(store.recordProviderEvent({
       providerName: 'example-psp',
       providerEventId: 'evt-1',
