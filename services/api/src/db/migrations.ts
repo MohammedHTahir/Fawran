@@ -610,6 +610,31 @@ create table fx_quotes (
 create index fx_quotes_user_idx on fx_quotes(user_id,created_at desc);
 create index fx_quotes_expiry_idx on fx_quotes(status,expires_at);
 `,
+  }, {
+    version: 14,
+    name: 'merchant_team_invitations',
+    sql: `
+create table merchant_invitations (
+  id text primary key,
+  merchant_id text not null references merchants(id) on delete cascade,
+  invited_user_id text not null references users(id) on delete restrict,
+  invited_by text not null references users(id) on delete restrict,
+  role text not null check (role in ('admin','manager','viewer')),
+  status text not null default 'pending' check (status in ('pending','accepted','revoked','expired')),
+  expires_at timestamptz not null,
+  accepted_at timestamptz,
+  revoked_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create unique index merchant_invitations_pending_unique
+  on merchant_invitations(merchant_id,invited_user_id) where status='pending';
+create index merchant_invitations_user_idx
+  on merchant_invitations(invited_user_id,status,created_at desc);
+create index merchant_invitations_merchant_idx
+  on merchant_invitations(merchant_id,status,created_at desc);
+`,
+  },
   },
 ] as const;
 
