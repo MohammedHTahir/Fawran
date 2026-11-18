@@ -277,7 +277,7 @@ describe('API flow', () => {
     expect(session).toBeTruthy();
     await pool.query("update auth_sessions set expires_at=now()-interval '91 days' where id=$1", [session.id]);
 
-    const otpKey = createHmac('sha256','dev-only-otp-pepper-change-before-deployment').update(phone).digest('hex');
+    const otpKey = createHmac('sha256','dev-only-otp-pepper-change-before-deployment').update(normalizePhone(phone)).digest('hex');
     await pool.query(
       "insert into otp_challenges(phone_key,code_digest,expires_at,attempts) values($1,$2,now()-interval '2 days',0)",
       [otpKey,'a'.repeat(64)],
