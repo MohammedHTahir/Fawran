@@ -45,6 +45,10 @@ class CreateCampaignDto {
   @IsInt() @Min(1) @Max(100_000) pointsPerMinor!: number;
   @IsOptional() @IsInt() @Min(1) maxPointsPerUser?: number;
 }
+class CreateMerchantInvitationDto {
+  @IsString() @Matches(/^\\+[1-9]\\d{7,14}$/) phone!: string;
+  @IsString() @IsIn(['admin','manager','viewer']) role!: 'admin'|'manager'|'viewer';
+}
 class UpdateMerchantMemberRoleDto {
   @IsString() @IsIn(['admin','manager','viewer']) role!: 'admin'|'manager'|'viewer';
 }
@@ -156,6 +160,163 @@ export class MerchantService {
     } catch (error: any) {
       if (error?.code !== '23505') throw error;
       return { currency, created: false, settlementStatus: 'blocked' };
+    }
+  }
+
+  async createInvitation(actorUserId: string, merchantId: string, body: CreateMerchantInvitationDto) {
+    const actor = await this.membership(actorUserId, merchantId, ['owner','admin']);
+    if (actor.role !== 'owner' && body.role === 'admin') {
+      throw new ForbiddenException('Only the merchant owner can invite an admin');
+    }
+    const invitee = await this.pool.query('select id from users where phone=$1', [body.phone]);
+    if (!invitee.rows[0]) throw new NotFoundException('The invited user must have a registered Fawran account');
+    const inviteeId = invitee.rows[0].id;
+    if (inviteeId === actorUserId) throw new BadRequestException('You cannot invite yourself');
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('select id from merchants where id=$1 for update', [merchantId]);
+      const currentActor = await client.query(
+        'select role from merchant_members where merchant_id=$1 and user_id=$2 for update',
+        [merchantId, actorUserId],
+      );
+      if (!currentActor.rows[0] || !['owner','admin'].includes(currentActor.rows[0].role)) {
+        throw new ForbiddenException('Insufficient merchant permissions');
+      }
+      if (currentActor.rows[0].role !== 'owner' && body.role === 'admin') {
+        throw new ForbiddenException('Only the merchant owner can invite an admin');
+      }
+      const existingMember = await client.query(
+        'select 1 from merchant_members where merchant_id=$1 and user_id=$2',
+        [merchantId, inviteeId],
+      );
+      if (existingMember.rows[0]) throw new ConflictException('This user is already a merchant member');
+      const id = randomUUID();
+      await client.query(
+        `insert into merchant_invitations(id,merchant_id,invited_user_id,invited_by,role,status,expires_at)
+         values($1,$2,$3,$4,$5,'pending',now()+interval '7 days')`,
+        [id, merchantId, inviteeId, actorUserId, body.role],
+      );
+      await client.query('commit');
+      return { invitationId: id, merchantId, invitedUserId: inviteeId, role: body.role, status: 'pending', expiresInDays: 7 };
+    } catch (error: any) {
+      await client.query('rollback').catch(() => undefined);
+      if (error?.code === '23505') throw new ConflictException('A pending invitation already exists for this user');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listInvitations(userId: string, merchantId: string) {
+    await this.membership(userId, merchantId);
+    const result = await this.pool.query(
+      `select i.id as "invitationId",i.invited_user_id as "invitedUserId",u.phone,i.role,
+       case when i.status='pending' and i.expires_at<=now() then 'expired' else i.status end as status,
+       i.expires_at as "expiresAt",i.created_at as "createdAt"
+       from merchant_invitations i join users u on u.id=i.invited_user_id
+       where i.merchant_id=$1 order by i.created_at desc`,
+      [merchantId],
+    );
+    return result.rows;
+  }
+
+  async listMyInvitations(userId: string) {
+    const result = await this.pool.query(
+      `select i.id as "invitationId",i.merchant_id as "merchantId",m.display_name as "merchantName",
+       m.country_code as "countryCode",i.role,i.status,i.expires_at as "expiresAt",
+       i.created_at as "createdAt",u.phone as "invitedByPhone"
+       from merchant_invitations i
+       join merchants m on m.id=i.merchant_id
+       join users u on u.id=i.invited_by
+       where i.invited_user_id=$1 and i.status='pending' and i.expires_at>now()
+       order by i.created_at desc`,
+      [userId],
+    );
+    return result.rows;
+  }
+
+  async acceptInvitation(userId: string, invitationId: string) {
+    const client = await this.pool.connect();
+    let expired = false;
+    try {
+      await client.query('begin');
+      const invitation = await client.query(
+        'select * from merchant_invitations where id=$1 for update',
+        [invitationId],
+      );
+      if (!invitation.rows[0] || invitation.rows[0].invited_user_id !== userId) {
+        throw new NotFoundException('Invitation not found');
+      }
+      const row = invitation.rows[0];
+      if (row.status !== 'pending') throw new ConflictException('This invitation is no longer pending');
+      if (new Date(row.expires_at).getTime() <= Date.now()) {
+        await client.query(
+          "update merchant_invitations set status='expired',updated_at=now() where id=$1",
+          [invitationId],
+        );
+        await client.query('commit');
+        expired = true;
+      } else {
+        await client.query('select id from merchants where id=$1 for update', [row.merchant_id]);
+        const existing = await client.query(
+          'select 1 from merchant_members where merchant_id=$1 and user_id=$2',
+          [row.merchant_id, userId],
+        );
+        if (existing.rows[0]) throw new ConflictException('You are already a member of this merchant');
+        await client.query(
+          'insert into merchant_members(merchant_id,user_id,role) values($1,$2,$3)',
+          [row.merchant_id, userId, row.role],
+        );
+        await client.query(
+          "update merchant_invitations set status='accepted',accepted_at=now(),updated_at=now() where id=$1",
+          [invitationId],
+        );
+        await client.query('commit');
+      }
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+    if (expired) throw new ConflictException('This invitation has expired');
+    return { invitationId, accepted: true };
+  }
+
+  async revokeInvitation(actorUserId: string, merchantId: string, invitationId: string) {
+    await this.membership(actorUserId, merchantId, ['owner','admin']);
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('select id from merchants where id=$1 for update', [merchantId]);
+      const actor = await client.query(
+        'select role from merchant_members where merchant_id=$1 and user_id=$2 for update',
+        [merchantId, actorUserId],
+      );
+      if (!actor.rows[0] || !['owner','admin'].includes(actor.rows[0].role)) {
+        throw new ForbiddenException('Insufficient merchant permissions');
+      }
+      const invitation = await client.query(
+        'select role,status from merchant_invitations where id=$1 and merchant_id=$2 for update',
+        [invitationId, merchantId],
+      );
+      if (!invitation.rows[0]) throw new NotFoundException('Invitation not found');
+      if (invitation.rows[0].status !== 'pending') throw new ConflictException('Only pending invitations can be revoked');
+      if (actor.rows[0].role !== 'owner' && invitation.rows[0].role === 'admin') {
+        throw new ForbiddenException('Only the merchant owner can revoke an admin invitation');
+      }
+      await client.query(
+        "update merchant_invitations set status='revoked',revoked_at=now(),updated_at=now() where id=$1",
+        [invitationId],
+      );
+      await client.query('commit');
+      return { invitationId, status: 'revoked' };
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
     }
   }
 
@@ -400,6 +561,19 @@ class MerchantController {
   @Post(':id/accounts') createAccount(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: CreateMerchantAccountDto) {
     return this.merchants.createAccount(user.id, id, body);
   }
+  @Post(':id/invitations') createInvitation(
+    @CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: CreateMerchantInvitationDto,
+  ) {
+    return this.merchants.createInvitation(user.id, id, body);
+  }
+  @Get(':id/invitations') listInvitations(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.merchants.listInvitations(user.id, id);
+  }
+  @Delete(':id/invitations/:invitationId') revokeInvitation(
+    @CurrentUser() user: AuthUser, @Param('id') id: string, @Param('invitationId') invitationId: string,
+  ) {
+    return this.merchants.revokeInvitation(user.id, id, invitationId);
+  }
   @Get(':id/members') listMembers(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.merchants.listMembers(user.id, id);
   }
@@ -434,6 +608,18 @@ class MerchantController {
   }
 }
 
+@Controller('merchant-invitations')
+@UseGuards(AuthGuard)
+class MerchantInvitationController {
+  constructor(private readonly merchants: MerchantService) {}
+  @Get('me') listMine(@CurrentUser() user: AuthUser) {
+    return this.merchants.listMyInvitations(user.id);
+  }
+  @Post(':id/accept') accept(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.merchants.acceptInvitation(user.id, id);
+  }
+}
+
 @Controller('admin/merchants')
 @UseGuards(AuthGuard, AdminGuard)
 class MerchantAdminController {
@@ -447,7 +633,7 @@ class MerchantAdminController {
 
 @Module({
   imports: [AuthModule, LedgerModule],
-  controllers: [MerchantController, MerchantAdminController],
+  controllers: [MerchantController, MerchantInvitationController, MerchantAdminController],
   providers: [MerchantService, AdminGuard],
   exports: [MerchantService],
 })
