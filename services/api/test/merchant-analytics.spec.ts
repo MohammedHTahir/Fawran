@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { MerchantService } from '../src/merchants/merchants.module';
 
 function makeService(role: string, analyticsRows: unknown[] = []) {
@@ -25,8 +25,8 @@ describe('merchant analytics', () => {
       period: { from: '2026-11-01', to: '2026-11-19', basis: 'payment_link_created_at' },
       totals: { linkCount: 7, paidCount: 3, openCount: 3, inactiveCount: 1 },
       currencies: [
-        { currency: 'AED', paidVolumeMinor: 12500, conversionBps: 5000 },
-        { currency: 'EGP', paidVolumeMinor: 7000, conversionBps: 3333 },
+        { currency: 'AED', paidVolumeMinor: '12500', conversionBps: 5000 },
+        { currency: 'EGP', paidVolumeMinor: '7000', conversionBps: 3333 },
       ],
     });
     expect(h.query).toHaveBeenCalledWith(expect.stringContaining('group by currency'), [
@@ -37,7 +37,7 @@ describe('merchant analytics', () => {
   it('allows a viewer to read analytics but rejects users outside the merchant', async () => {
     const h = makeService('none');
     await expect(h.service.analytics('outsider', 'merchant-1')).rejects.toBeInstanceOf(
-      (await import('@nestjs/common')).NotFoundException,
+      NotFoundException,
     );
     expect(h.query).toHaveBeenCalledTimes(1);
   });
@@ -52,6 +52,13 @@ describe('merchant analytics', () => {
   it('rejects reversed date ranges', async () => {
     const h = makeService('owner');
     await expect(h.service.analytics('owner-1', 'merchant-1', '2026-11-20', '2026-11-19'))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(h.query).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects date ranges longer than one year', async () => {
+    const h = makeService('owner');
+    await expect(h.service.analytics('owner-1', 'merchant-1', '2025-01-01', '2026-11-19'))
       .rejects.toBeInstanceOf(BadRequestException);
     expect(h.query).toHaveBeenCalledTimes(1);
   });
