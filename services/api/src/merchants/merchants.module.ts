@@ -669,7 +669,7 @@ export class MerchantService {
       await client.query('begin');
       const result = await client.query(
         `select c.id,c.owner_id,c.merchant_id,c.status,c.funding_source,m.kyb_status,m.status as merchant_status
-         from reward_campaigns c join merchants m on m.id=c.merchant_id where c.id=$1 for update of c,m`,
+         from reward_campaigns c join merchants m on m.id=c.merchant_id where c.id=$1 for update`,
         [campaignId],
       );
       const campaign = result.rows[0];
