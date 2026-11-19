@@ -359,10 +359,10 @@ export default function App() {
       </View>
       <View style={[S.row,{marginTop:12,gap:8}]}>
         <View style={[S.analyticsMetric,{flex:1}]}>{txt(w.paymentLinks,{fontSize:10,color:C.muted})}{txt(String(merchantAnalytics?.totals.linkCount??0),{fontSize:20,fontWeight:'900',color:C.ink})}</View>
-        <View style={[S.metric,{flex:1}]}>{txt(w.paidPayments,{fontSize:10,color:C.muted})}{txt(String(merchantAnalytics?.totals.paidCount??0),{fontSize:20,fontWeight:'900',color:C.teal})}</View>
+        <View style={[S.analyticsMetric,{flex:1}]}>{txt(w.paidPayments,{fontSize:10,color:C.muted})}{txt(String(merchantAnalytics?.totals.paidCount??0),{fontSize:20,fontWeight:'900',color:C.teal})}</View>
       </View>
       {merchantAnalytics?.currencies.length?merchantAnalytics.currencies.map(item=>{
-        const minor=String(item.paidVolumeMinor||'0').replace(/^(-?)(\\d+)$/,(_,sign,whole)=>sign+whole.padStart(3,'0'));
+        const minor=String(item.paidVolumeMinor||'0');
         const volume=minor.length>2?minor.slice(0,-2)+'.'+minor.slice(-2):'0.'+minor.padStart(2,'0');
         return <View key={item.currency} style={{paddingVertical:11,borderBottomWidth:1,borderBottomColor:C.line}}>
           <View style={[S.row,{justifyContent:'space-between'}]}>
