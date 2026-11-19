@@ -66,6 +66,10 @@ class KybDecisionDto {
   @IsString() @IsIn(['approved','rejected','needs_info']) decision!: 'approved'|'rejected'|'needs_info';
   @IsOptional() @IsString() @Length(0, 500) reason?: string;
 }
+class CampaignDecisionDto {
+  @IsString() @IsIn(['approved','rejected']) decision!: 'approved'|'rejected';
+  @IsOptional() @IsString() @Length(0, 500) reason?: string;
+}
 
 @Injectable()
 export class MerchantService {
@@ -613,6 +617,127 @@ export class MerchantService {
     return result.rows.map((row: any) => ({ ...row, budget_minor: Number(row.budget_minor), spent_minor: Number(row.spent_minor) }));
   }
 
+  async submitCampaignForReview(userId: string, merchantId: string, campaignId: string) {
+    await this.membership(userId, merchantId, ['owner','admin']);
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      const result = await client.query(
+        'select id,owner_id,status,funding_source from reward_campaigns where id=$1 and merchant_id=$2 for update',
+        [campaignId, merchantId],
+      );
+      const campaign = result.rows[0];
+      if (!campaign || campaign.funding_source !== 'merchant') throw new NotFoundException('Merchant campaign not found');
+      if (!['pending_funding','rejected'].includes(campaign.status)) {
+        throw new ConflictException('Only unfunded drafts or rejected campaigns can be submitted for review');
+      }
+      const nextStatus = 'pending_review';
+      await client.query('update reward_campaigns set status=$2,updated_at=now() where id=$1', [campaignId, nextStatus]);
+      await client.query(
+        `insert into merchant_campaign_audit_events(id,campaign_id,merchant_id,actor_user_id,action,from_status,to_status)
+         values($1,$2,$3,$4,$5,$6,$7)`,
+        [randomUUID(), campaignId, merchantId, userId, campaign.status === 'rejected' ? 'resubmitted' : 'submitted', campaign.status, nextStatus],
+      );
+      await client.query('commit');
+      return { campaignId, status: nextStatus, funded: false, pointsIssuanceEnabled: false };
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      throw error;
+    } finally { client.release(); }
+  }
+
+  async listPendingCampaignReviews() {
+    const result = await this.pool.query(
+      `select c.id as "campaignId",c.merchant_id as "merchantId",c.owner_id as "createdBy",
+       c.name,c.currency,c.budget_minor::text as "budgetMinor",c.spent_minor::text as "spentMinor",
+       c.funded_minor::text as "fundedMinor",c.reserved_minor::text as "reservedMinor",
+       c.points_per_minor as "pointsPerMinor",c.status,c.created_at as "createdAt",
+       m.legal_name as "merchantLegalName",m.display_name as "merchantDisplayName",m.kyb_status as "kybStatus"
+       from reward_campaigns c join merchants m on m.id=c.merchant_id
+       where c.funding_source='merchant' and c.status='pending_review'
+       order by c.created_at asc`,
+    );
+    return result.rows.map((row: any) => ({ ...row, funded: false, pointsIssuanceEnabled: false }));
+  }
+
+  async decideCampaignReview(adminUserId: string, campaignId: string, body: CampaignDecisionDto) {
+    if (body.decision === 'rejected' && !body.reason?.trim()) {
+      throw new BadRequestException('A reason is required when rejecting a campaign');
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      const result = await client.query(
+        `select c.id,c.owner_id,c.merchant_id,c.status,c.funding_source,m.kyb_status,m.status as merchant_status
+         from reward_campaigns c join merchants m on m.id=c.merchant_id where c.id=$1 for update of c,m`,
+        [campaignId],
+      );
+      const campaign = result.rows[0];
+      if (!campaign || campaign.funding_source !== 'merchant') throw new NotFoundException('Merchant campaign not found');
+      if (campaign.status !== 'pending_review') throw new ConflictException('Campaign is not awaiting review');
+      if (campaign.owner_id === adminUserId) throw new ForbiddenException('Campaign creators cannot approve or reject their own campaign');
+      if (body.decision === 'approved' && (campaign.kyb_status !== 'approved' || campaign.merchant_status === 'suspended')) {
+        throw new ConflictException('Merchant KYB must remain approved and the merchant must not be suspended');
+      }
+      const nextStatus = body.decision;
+      await client.query('update reward_campaigns set status=$2,updated_at=now() where id=$1', [campaignId, nextStatus]);
+      await client.query(
+        `insert into merchant_campaign_audit_events(id,campaign_id,merchant_id,actor_user_id,action,from_status,to_status,reason)
+         values($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [randomUUID(), campaignId, campaign.merchant_id, adminUserId, nextStatus, campaign.status, nextStatus, body.reason?.trim() || null],
+      );
+      await client.query('commit');
+      return { campaignId, status: nextStatus, funded: false, pointsIssuanceEnabled: false };
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      throw error;
+    } finally { client.release(); }
+  }
+
+  async archiveCampaign(userId: string, merchantId: string, campaignId: string) {
+    await this.membership(userId, merchantId, ['owner','admin']);
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      const result = await client.query(
+        'select id,status,funding_source from reward_campaigns where id=$1 and merchant_id=$2 for update',
+        [campaignId, merchantId],
+      );
+      const campaign = result.rows[0];
+      if (!campaign || campaign.funding_source !== 'merchant') throw new NotFoundException('Merchant campaign not found');
+      if (!['draft','pending_funding','approved','rejected'].includes(campaign.status)) {
+        throw new ConflictException('Campaign cannot be archived from its current state');
+      }
+      await client.query("update reward_campaigns set status='archived',updated_at=now() where id=$1", [campaignId]);
+      await client.query(
+        `insert into merchant_campaign_audit_events(id,campaign_id,merchant_id,actor_user_id,action,from_status,to_status)
+         values($1,$2,$3,$4,'archived',$5,'archived')`,
+        [randomUUID(), campaignId, merchantId, userId, campaign.status],
+      );
+      await client.query('commit');
+      return { campaignId, status: 'archived', funded: false, pointsIssuanceEnabled: false };
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      throw error;
+    } finally { client.release(); }
+  }
+
+  async campaignAuditHistory(userId: string, merchantId: string, campaignId: string) {
+    await this.membership(userId, merchantId);
+    const campaign = await this.pool.query(
+      'select id from reward_campaigns where id=$1 and merchant_id=$2',
+      [campaignId, merchantId],
+    );
+    if (!campaign.rows[0]) throw new NotFoundException('Merchant campaign not found');
+    const result = await this.pool.query(
+      `select id,actor_user_id as "actorUserId",action,from_status as "fromStatus",
+       to_status as "toStatus",reason,created_at as "createdAt"
+       from merchant_campaign_audit_events where campaign_id=$1 order by created_at asc,id asc`,
+      [campaignId],
+    );
+    return result.rows;
+  }
+
   async pendingKyb() {
     const result = await this.pool.query(
       `select c.id as case_id,c.status as case_status,c.document_types,c.submitted_at,
@@ -738,6 +863,15 @@ class MerchantController {
   @Get(':id/campaigns') listCampaigns(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.merchants.listCampaigns(user.id, id);
   }
+  @Post(':id/campaigns/:campaignId/submit') submitCampaign(@CurrentUser() user: AuthUser, @Param('id') id: string, @Param('campaignId') campaignId: string) {
+    return this.merchants.submitCampaignForReview(user.id, id, campaignId);
+  }
+  @Post(':id/campaigns/:campaignId/archive') archiveCampaign(@CurrentUser() user: AuthUser, @Param('id') id: string, @Param('campaignId') campaignId: string) {
+    return this.merchants.archiveCampaign(user.id, id, campaignId);
+  }
+  @Get(':id/campaigns/:campaignId/audit') campaignAudit(@CurrentUser() user: AuthUser, @Param('id') id: string, @Param('campaignId') campaignId: string) {
+    return this.merchants.campaignAuditHistory(user.id, id, campaignId);
+  }
 }
 
 @Controller('merchant-invitations')
@@ -760,6 +894,12 @@ class MerchantAdminController {
   @Get('kyb') pendingKyb() { return this.merchants.pendingKyb(); }
   @Post(':id/kyb/decision') decideKyb(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: KybDecisionDto) {
     return this.merchants.decideKyb(user.id, id, body);
+  }
+  @Get('campaigns/review-queue') pendingCampaignReviews() {
+    return this.merchants.listPendingCampaignReviews();
+  }
+  @Post('campaigns/:campaignId/decision') decideCampaignReview(@CurrentUser() user: AuthUser, @Param('campaignId') campaignId: string, @Body() body: CampaignDecisionDto) {
+    return this.merchants.decideCampaignReview(user.id, campaignId, body);
   }
 }
 
