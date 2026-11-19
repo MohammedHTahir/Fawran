@@ -71,3 +71,12 @@ This is an operational foundation, not a license, KYB decision, settlement accou
 ## Merchant analytics
 
 The initial analytics endpoint reports payment-link cohorts by link creation date. It returns link counts, paid/open/inactive counts, paid conversion basis points and paid volume per currency. Monetary amounts are minor units; currencies are never added together. Paid volume reflects the current `paid` status of links created during the selected period, not a payment-event timestamp. This avoids presenting link creation time as the actual collection date. Date ranges are inclusive and default to the latest 30 calendar days.
+
+
+## Merchant campaign governance
+
+- Owners/admins submit merchant-funded campaign drafts for review; managers and viewers cannot submit or archive them.
+- Compliance administrators use `GET /admin/merchants/campaigns/review-queue` and `POST /admin/merchants/campaigns/:campaignId/decision` to approve or reject. Rejections require a reason, and campaign creators cannot review their own submissions.
+- A campaign can be submitted again after rejection. Owners/admins can archive drafts, pending-funding drafts, rejected campaigns or approved-but-unfunded campaigns; a campaign in review cannot be archived to bypass review.
+- Every submission, resubmission, decision and archive action is recorded in `merchant_campaign_audit_events` and is visible to merchant members through the campaign audit endpoint.
+- Approval is a compliance workflow decision only. It does not fund, reserve or activate a campaign: `funded_minor`, `reserved_minor` and `spent_minor` remain zero, and reward issuance stays disabled. The rewards service continues to reject campaign-linked issuance until a separately approved funding and spend-control workflow exists.

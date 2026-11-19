@@ -269,7 +269,8 @@ create table reward_campaigns (
   spent_minor bigint not null default 0 check (spent_minor >= 0 and spent_minor <= budget_minor),
   points_per_minor integer not null check (points_per_minor > 0),
   max_points_per_user bigint,
-  status text not null default 'draft' check (status in ('draft','pending_funding','active','paused','ended')),
+  status text not null default 'draft',
+  constraint reward_campaigns_status_check check (status in ('draft','pending_funding','active','paused','ended')),
   starts_at timestamptz,
   ends_at timestamptz,
   created_at timestamptz not null default now(),
@@ -633,6 +634,31 @@ create index merchant_invitations_user_idx
   on merchant_invitations(invited_user_id,status,created_at desc);
 create index merchant_invitations_merchant_idx
   on merchant_invitations(merchant_id,status,created_at desc);
+`,
+  }, {
+    version: 15,
+    name: 'merchant_campaign_governance_and_audit',
+    sql: `
+alter table reward_campaigns drop constraint if exists reward_campaigns_status_check;
+alter table reward_campaigns add constraint reward_campaigns_status_check
+  check (status in ('draft','pending_funding','pending_review','approved','rejected','paused','archived','active','ended'));
+alter table reward_campaigns add column if not exists funded_minor bigint not null default 0 check (funded_minor >= 0 and funded_minor <= budget_minor);
+alter table reward_campaigns add column if not exists reserved_minor bigint not null default 0 check (reserved_minor >= 0 and reserved_minor <= budget_minor);
+create table merchant_campaign_audit_events (
+  id text primary key,
+  campaign_id text not null references reward_campaigns(id) on delete restrict,
+  merchant_id text not null references merchants(id) on delete restrict,
+  actor_user_id text not null references users(id) on delete restrict,
+  action text not null check (action in ('submitted','approved','rejected','resubmitted','archived')),
+  from_status text not null,
+  to_status text not null,
+  reason text,
+  created_at timestamptz not null default now()
+);
+create index merchant_campaign_audit_campaign_idx
+  on merchant_campaign_audit_events(campaign_id,created_at desc);
+create index merchant_campaign_audit_merchant_idx
+  on merchant_campaign_audit_events(merchant_id,created_at desc);
 `,
   },
 ] as const;
