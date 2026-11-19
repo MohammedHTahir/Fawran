@@ -507,7 +507,7 @@ export class MerchantService {
       throw new BadRequestException('Analytics dates must be valid YYYY-MM-DD values with from on or before to');
     }
     const startDate = from ?? new Date(Date.parse(`${endDate}T00:00:00.000Z`) - 29 * 86400000).toISOString().slice(0, 10);
-    if (!isDate(startDate) || startDate > endDate) {
+    if (!isDate(startDate) || startDate > endDate || Date.parse(`${endDate}T00:00:00.000Z`) - Date.parse(`${startDate}T00:00:00.000Z`) > 365 * 86400000) {
       throw new BadRequestException('Analytics dates must be valid YYYY-MM-DD values with from on or before to');
     }
     const result = await this.pool.query(
@@ -530,7 +530,7 @@ export class MerchantService {
         currency: row.currency,
         linkCount,
         paidCount,
-        paidVolumeMinor: Number(row.paid_volume_minor),
+        paidVolumeMinor: String(row.paid_volume_minor),
         openCount: Number(row.open_count),
         inactiveCount: Number(row.inactive_count),
         conversionBps: linkCount ? Math.round((paidCount / linkCount) * 10000) : 0,
@@ -723,7 +723,7 @@ class MerchantController {
   ) {
     return this.merchants.analytics(user.id, id, from, to);
   }
-    @Post(':id/payment-links') createPaymentLink(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: CreateMerchantLinkDto) {
+  @Post(':id/payment-links') createPaymentLink(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: CreateMerchantLinkDto) {
     return this.merchants.createPaymentLink(user.id, id, body);
   }
   @Post(':id/offers') createOffer(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: CreateOfferDto) {
