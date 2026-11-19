@@ -503,8 +503,11 @@ export class MerchantService {
       && new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) === value;
     const today = new Date().toISOString().slice(0, 10);
     const endDate = to ?? today;
+    if (!isDate(endDate)) {
+      throw new BadRequestException('Analytics dates must be valid YYYY-MM-DD values with from on or before to');
+    }
     const startDate = from ?? new Date(Date.parse(`${endDate}T00:00:00.000Z`) - 29 * 86400000).toISOString().slice(0, 10);
-    if (!isDate(startDate) || !isDate(endDate) || startDate > endDate) {
+    if (!isDate(startDate) || startDate > endDate) {
       throw new BadRequestException('Analytics dates must be valid YYYY-MM-DD values with from on or before to');
     }
     const result = await this.pool.query(
