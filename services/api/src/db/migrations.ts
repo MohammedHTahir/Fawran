@@ -634,7 +634,6 @@ create index merchant_invitations_user_idx
 create index merchant_invitations_merchant_idx
   on merchant_invitations(merchant_id,status,created_at desc);
 `,
-  },
   }, {
     version: 15,
     name: 'merchant_campaign_governance_and_audit',
