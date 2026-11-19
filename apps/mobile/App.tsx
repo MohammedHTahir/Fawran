@@ -358,7 +358,7 @@ export default function App() {
         {txt(w.last30days,{fontSize:10,color:C.muted})}
       </View>
       <View style={[S.row,{marginTop:12,gap:8}]}>
-        <View style={[S.metric,{flex:1}]}>{txt(w.paymentLinks,{fontSize:10,color:C.muted})}{txt(String(merchantAnalytics?.totals.linkCount??0),{fontSize:20,fontWeight:'900',color:C.ink})}</View>
+        <View style={[S.analyticsMetric,{flex:1}]}>{txt(w.paymentLinks,{fontSize:10,color:C.muted})}{txt(String(merchantAnalytics?.totals.linkCount??0),{fontSize:20,fontWeight:'900',color:C.ink})}</View>
         <View style={[S.metric,{flex:1}]}>{txt(w.paidPayments,{fontSize:10,color:C.muted})}{txt(String(merchantAnalytics?.totals.paidCount??0),{fontSize:20,fontWeight:'900',color:C.teal})}</View>
       </View>
       {merchantAnalytics?.currencies.length?merchantAnalytics.currencies.map(item=>{
@@ -460,6 +460,7 @@ const S=StyleSheet.create({
  balanceHeader:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},balanceEye:{width:40,height:40,borderRadius:14,backgroundColor:'rgba(255,255,255,0.12)',alignItems:'center',justifyContent:'center'},balanceEyeText:{color:C.white,fontSize:19,fontWeight:'800'},
  action:{flex:1,alignItems:'center',gap:8,minHeight:88,justifyContent:'center',backgroundColor:C.white,borderRadius:18,paddingVertical:12,borderWidth:1,borderColor:C.line},
  actionIcon:{width:48,height:48,borderRadius:16,backgroundColor:C.pale,alignItems:'center',justifyContent:'center'},
+ analyticsMetric:{backgroundColor:C.pale,borderRadius:14,padding:12,gap:5},
  card:{backgroundColor:C.white,borderRadius:20,borderWidth:1,borderColor:C.line,padding:16,shadowColor:'#173B32',shadowOpacity:.035,shadowRadius:12,shadowOffset:{width:0,height:5},elevation:1},
  empty:{padding:24,textAlign:'center',color:C.muted},
  txrow:{flexDirection:'row',alignItems:'center',gap:12,paddingVertical:14,borderBottomWidth:StyleSheet.hairlineWidth,borderColor:C.line},
