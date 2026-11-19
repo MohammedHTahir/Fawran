@@ -3,7 +3,7 @@ import {
 } from 'class-validator';
 import {
   BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, Inject,
-  Injectable, Module, NotFoundException, Param, Patch, Post, UseGuards,
+  Injectable, Module, NotFoundException, Param, Patch, Post, Query, UseGuards,
 } from '@nestjs/common';
 import { randomBytes, randomUUID } from 'crypto';
 import { Pool } from 'pg';
@@ -496,6 +496,57 @@ export class MerchantService {
     return merchant;
   }
 
+  async analytics(userId: string, merchantId: string, from?: string, to?: string) {
+    await this.membership(userId, merchantId);
+    const isDate = (value?: string) => !!value && /^\\d{4}-\\d{2}-\\d{2}$/.test(value)
+      && !Number.isNaN(Date.parse(`${value}T00:00:00.000Z`))
+      && new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) === value;
+    const today = new Date().toISOString().slice(0, 10);
+    const endDate = to ?? today;
+    const startDate = from ?? new Date(Date.parse(`${endDate}T00:00:00.000Z`) - 29 * 86400000).toISOString().slice(0, 10);
+    if (!isDate(startDate) || !isDate(endDate) || startDate > endDate) {
+      throw new BadRequestException('Analytics dates must be valid YYYY-MM-DD values with from on or before to');
+    }
+    const result = await this.pool.query(
+      `select currency,
+        count(*)::int as link_count,
+        count(*) filter (where status='paid')::int as paid_count,
+        coalesce(sum(amount) filter (where status='paid'),0)::text as paid_volume_minor,
+        count(*) filter (where status in ('open','processing'))::int as open_count,
+        count(*) filter (where status in ('cancelled','expired'))::int as inactive_count
+       from payment_links
+       where merchant_id=$1 and created_at >= $2::date
+         and created_at < ($3::date + interval '1 day')
+       group by currency order by currency`,
+      [merchantId, startDate, endDate],
+    );
+    const currencies = result.rows.map((row: any) => {
+      const linkCount = Number(row.link_count);
+      const paidCount = Number(row.paid_count);
+      return {
+        currency: row.currency,
+        linkCount,
+        paidCount,
+        paidVolumeMinor: Number(row.paid_volume_minor),
+        openCount: Number(row.open_count),
+        inactiveCount: Number(row.inactive_count),
+        conversionBps: linkCount ? Math.round((paidCount / linkCount) * 10000) : 0,
+      };
+    });
+    return {
+      merchantId,
+      period: { from: startDate, to: endDate, basis: 'payment_link_created_at' },
+      totals: {
+        linkCount: currencies.reduce((sum, item) => sum + item.linkCount, 0),
+        paidCount: currencies.reduce((sum, item) => sum + item.paidCount, 0),
+        openCount: currencies.reduce((sum, item) => sum + item.openCount, 0),
+        inactiveCount: currencies.reduce((sum, item) => sum + item.inactiveCount, 0),
+      },
+      currencies,
+      note: 'Paid volume is grouped by payment-link currency. Amounts are minor units and currencies are never combined.',
+    };
+  }
+
   async createPaymentLink(userId: string, merchantId: string, body: CreateMerchantLinkDto) {
     await this.requireApprovedMerchant(userId, merchantId);
     const currency = body.currency.trim().toUpperCase();
@@ -663,7 +714,13 @@ class MerchantController {
   @Post(':id/kyb/submit') submitKyb(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: SubmitKybDto) {
     return this.merchants.submitKyb(user.id, id, body);
   }
-  @Post(':id/payment-links') createPaymentLink(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: CreateMerchantLinkDto) {
+  @Get(':id/analytics') analytics(
+    @CurrentUser() user: AuthUser, @Param('id') id: string,
+    @Query('from') from?: string, @Query('to') to?: string,
+  ) {
+    return this.merchants.analytics(user.id, id, from, to);
+  }
+    @Post(':id/payment-links') createPaymentLink(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: CreateMerchantLinkDto) {
     return this.merchants.createPaymentLink(user.id, id, body);
   }
   @Post(':id/offers') createOffer(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: CreateOfferDto) {
