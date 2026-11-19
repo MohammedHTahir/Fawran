@@ -27,6 +27,7 @@ Status: merchant onboarding and KYB workflow foundation implemented. Merchant se
 - `PATCH /merchants/:id/members/:userId/role` — update a member's role.
 - `DELETE /merchants/:id/members/:userId` — remove a member.
 - `GET /merchants/:id` — merchant profile and business account balances.
+- `GET /merchants/:id/analytics?from=YYYY-MM-DD&to=YYYY-MM-DD` — payment-link activity and paid volume grouped by currency (owner/admin/manager/viewer).
 - `POST /merchants/:id/accounts` — create another currency account.
 - `POST /merchants/:id/kyb/submit` — submit KYB metadata.
 - `GET /admin/merchants/kyb` — list open KYB cases.
@@ -59,9 +60,14 @@ Available roles: `super_admin`, `compliance_admin`, `support_admin`, `finance_ad
 
 - Secure KYB document upload, verification and retention controls.
 - Merchant team invitations are not implemented; members must already have Fawran accounts. Merchant-scoped role management is implemented: owners can assign admin/manager/viewer; admins can manage manager/viewer only. The owner cannot be demoted or removed, and users cannot change or remove their own membership.
-- Store QR presentation and a fuller merchant analytics dashboard.
+- Store QR presentation and richer merchant analytics (store-level attribution and payment timestamps once those are captured).
 - Partner-funded balance reservation, payment capture, refunds, settlement and payouts.
 - Campaign approval, budget reservation, spend caps, reversals and rewards fulfilment.
 - Risk scoring, merchant monitoring and ongoing KYB refresh.
 
 This is an operational foundation, not a license, KYB decision, settlement account or payment-provider approval.
+
+
+## Merchant analytics
+
+The initial analytics endpoint reports payment-link cohorts by link creation date. It returns link counts, paid/open/inactive counts, paid conversion basis points and paid volume per currency. Monetary amounts are minor units; currencies are never added together. Paid volume reflects the current `paid` status of links created during the selected period, not a payment-event timestamp. This avoids presenting link creation time as the actual collection date. Date ranges are inclusive and default to the latest 30 calendar days.
