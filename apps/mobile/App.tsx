@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, Pressable, RefreshControl, ScrollView, Share, StatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import * as Clipboard from 'expo-clipboard';
+import QRCode from 'react-native-qrcode-svg';
 
 type Lang = 'ar' | 'en';
 type MarketCode = 'AE'|'EG'|'SA'|'GB'|'US';
@@ -518,7 +519,7 @@ export default function App() {
     <View style={S.card}>
       {txt(rtl?'استلام الأموال':'Receive money',{fontSize:17,fontWeight:'900',marginBottom:8})}
       {txt(rtl?'أنشئ رمز استلام وشاركه. الرمز يحدد محفظتك فقط ولا ينفذ أي تحويل.':'Create a receiving code and share it. The code identifies your wallet; it cannot authorize a transfer.',{fontSize:12,color:C.muted,marginBottom:12})}
-      {receiveCode? <><Text selectable style={S.code}>{receiveCode.code}</Text>{button(rtl?'نسخ رابط الاستلام':'Copy receive link',()=>void Clipboard.setStringAsync(receiveCode.deepLink).then(()=>Alert.alert(w.copied))) }{button(rtl?'مشاركة رابط الاستلام':'Share receive link',()=>void Share.share({message:receiveCode.deepLink}),true)}</>:button(rtl?'إنشاء رمز الاستلام':'Create receive code',()=>void loadReceiveCode())}
+      {receiveCode? <><View style={{alignItems:'center',padding:18,backgroundColor:'#FFFFFF',borderRadius:18,marginVertical:12}}><QRCode value={receiveCode.deepLink} size={220} backgroundColor="#FFFFFF" color="#152824"/></View><Text selectable style={S.code}>{receiveCode.code}</Text>{button(rtl?'نسخ رابط الاستلام':'Copy receive link',()=>void Clipboard.setStringAsync(receiveCode.deepLink).then(()=>Alert.alert(w.copied))) }{button(rtl?'مشاركة رابط الاستلام':'Share receive link',()=>void Share.share({message:receiveCode.deepLink}),true)}</>:button(rtl?'إنشاء رمز الاستلام':'Create receive code',()=>void loadReceiveCode())}
     </View>
     <View style={S.formCard}>
       {txt(rtl?'طلب مبلغ من شخص':'Request money from someone',{fontSize:17,fontWeight:'900',marginBottom:10})}
