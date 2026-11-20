@@ -317,6 +317,7 @@ describe('API flow', () => {
   it('prunes expired OTP data and long-expired sessions transactionally', async () => {
     // Reset the shared test IP bucket so this case is independent of earlier OTP abuse tests.
     await pool.query('delete from otp_verify_rate_limits');
+    await pool.query('delete from otp_rate_limits');
     const phone = '01000000036';
     await request(app.getHttpServer()).post('/auth/otp').send({ phone }).expect(201);
     const login = await request(app.getHttpServer()).post('/auth/verify').send({ phone, code:'000000' }).expect(201);
