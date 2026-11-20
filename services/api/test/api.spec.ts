@@ -119,40 +119,40 @@ describe('API flow', () => {
     expect(receive.body).toMatchObject({ purpose:'recipient_identification_only' });
     expect(receive.body.code).toMatch(/^[A-Za-z0-9_-]{32}$/);
     expect(receive.body.deepLink).toContain('fawran://pay?code=');
-    const replayCode = await request(s).get('/wallet/receive-code').set(h(alice)).expect(200);
+    const replayCode = await request(s).get('/wallet/receive-code').set(h(charlie)).expect(200);
     expect(replayCode.body.code).toBe(receive.body.code);
     const resolved = await request(s).get('/wallet/resolve/'+receive.body.code).set(h(dana)).expect(200);
-    expect(resolved.body).toMatchObject({ recipientPhone:'+201000000001',currency:'EGP' });
+    expect(resolved.body).toMatchObject({ recipientPhone:'+201000000041',currency:'EGP' });
     await request(s).get('/wallet/resolve/'+receive.body.code).set(h(charlie)).expect(400);
-    await request(s).get('/wallet/resolve/not-a-valid-code').set(h(bob)).expect(404);
+    await request(s).get('/wallet/resolve/not-a-valid-code').set(h(dana)).expect(404);
 
-    const aliceBefore = (await request(s).get('/wallet').set(h(alice))).body.balance;
-    const bobBefore = (await request(s).get('/wallet').set(h(bob))).body.balance;
+    const aliceBefore = (await request(s).get('/wallet').set(h(charlie))).body.balance;
+    const bobBefore = (await request(s).get('/wallet').set(h(dana))).body.balance;
     const body = { toPhone:'01000000042',countryCode:'EG',amount:1_000,currency:'EGP',note:'Coffee' };
     const created = await request(s).post('/wallet/requests').set(h(charlie,'request-0001')).send(body).expect(201);
     expect(created.body).toMatchObject({ requester_id:expect.any(String),payer_id:expect.any(String),amount:1_000,currency:'EGP',status:'pending',replayed:false });
-    const replay = await request(s).post('/wallet/requests').set(h(alice,'request-0001')).send(body).expect(201);
+    const replay = await request(s).post('/wallet/requests').set(h(charlie,'request-0001')).send(body).expect(201);
     expect(replay.body.id).toBe(created.body.id);
     expect(replay.body.replayed).toBe(true);
-    await request(s).post('/wallet/requests').set(h(alice,'request-0001'))
+    await request(s).post('/wallet/requests').set(h(charlie,'request-0001'))
       .send({...body,amount:2_000}).expect(400);
 
-    const inbox = await request(s).get('/wallet/requests').set(h(bob)).expect(200);
+    const inbox = await request(s).get('/wallet/requests').set(h(dana)).expect(200);
     expect(inbox.body).toEqual(expect.arrayContaining([
       expect.objectContaining({ id:created.body.id,direction:'incoming',status:'pending',amount:1_000 })
     ]));
-    await request(s).post('/wallet/requests/'+created.body.id+'/accept').set(h(alice)).send({}).expect(404);
-    const paid = await request(s).post('/wallet/requests/'+created.body.id+'/accept').set(h(bob)).send({}).expect(201);
+    await request(s).post('/wallet/requests/'+created.body.id+'/accept').set(h(charlie)).send({}).expect(404);
+    const paid = await request(s).post('/wallet/requests/'+created.body.id+'/accept').set(h(dana)).send({}).expect(201);
     expect(paid.body).toMatchObject({ requestId:created.body.id,status:'accepted',currency:'EGP' });
-    const replayPaid = await request(s).post('/wallet/requests/'+created.body.id+'/accept').set(h(bob)).send({}).expect(201);
+    const replayPaid = await request(s).post('/wallet/requests/'+created.body.id+'/accept').set(h(dana)).send({}).expect(201);
     expect(replayPaid.body).toMatchObject({ txnId:paid.body.txnId,replayed:true });
-    expect((await request(s).get('/wallet').set(h(alice))).body.balance).toBe(aliceBefore+1_000);
-    expect((await request(s).get('/wallet').set(h(bob))).body.balance).toBe(bobBefore-1_000);
+    expect((await request(s).get('/wallet').set(h(charlie))).body.balance).toBe(aliceBefore+1_000);
+    expect((await request(s).get('/wallet').set(h(dana))).body.balance).toBe(bobBefore-1_000);
 
     const declined = await request(s).post('/wallet/requests').set(h(charlie,'request-0002'))
       .send({...body,amount:500}).expect(201);
-    await request(s).post('/wallet/requests/'+declined.body.id+'/decline').set(h(bob)).send({}).expect(201);
-    await request(s).post('/wallet/requests/'+declined.body.id+'/accept').set(h(bob)).send({}).expect(400);
+    await request(s).post('/wallet/requests/'+declined.body.id+'/decline').set(h(dana)).send({}).expect(201);
+    await request(s).post('/wallet/requests/'+declined.body.id+'/accept').set(h(dana)).send({}).expect(400);
   });
 
   it('top-up replay posts to the ledger once and rejects changed payloads', async () => {
