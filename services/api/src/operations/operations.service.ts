@@ -223,7 +223,7 @@ export class OperationsService {
     try {
       await client.query('begin');
       const current = await client.query(
-        'select id,status,kind,batch_id from reconciliation_exceptions where id=$1 for update',
+        'select id,status,kind,batch_id,details from reconciliation_exceptions where id=$1 for update',
         [id],
       );
       if (!current.rows[0]) throw new NotFoundException('Reconciliation exception not found');
@@ -234,10 +234,10 @@ export class OperationsService {
       const updated = await client.query(
         `update reconciliation_exceptions
             set status=$2,resolved_at=now(),resolved_by=$3,
-                details=details || $4::jsonb
+                details=$4::jsonb
           where id=$1 and status='open'
           returning id,status,kind,batch_id,resolved_at,resolved_by`,
-        [id, status, actorId, JSON.stringify({ decision: details })],
+        [id, status, actorId, JSON.stringify({ ...(current.rows[0].details ?? {}), decision: details })],
       );
       if (!updated.rows[0]) throw new ConflictException('Reconciliation exception was decided concurrently');
       await client.query(
