@@ -2,6 +2,7 @@ import './config/load-env';
 import 'reflect-metadata';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module';
 
 function configuredCorsOrigins(): string[] {
@@ -38,7 +39,7 @@ async function bootstrap() {
   if (trustProxyHops !== undefined) express.set('trust proxy', trustProxyHops);
   express.disable('x-powered-by');
 
-  app.use((_req, res, next) => {
+  app.use((_req: Request, res: Response, next: NextFunction) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
