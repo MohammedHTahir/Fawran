@@ -36,6 +36,12 @@ Use `/health/ready` for deployment readiness probes and `/health/live` for proce
 | GET | /wallet, /transactions | yes | |
 | POST | /wallet/topup `{amount,method}` | yes | requires `Idempotency-Key`; provider is mocked |
 | POST | /transfers `{toPhone,amount,note?}` | yes | requires `Idempotency-Key` |
+| GET | /wallet/receive-code | yes | returns an opaque recipient-identification code and `fawran://pay` deep link; does not authorize payment |
+| GET | /wallet/resolve/:code | yes | resolves a receive code to a recipient; sender must still confirm a transfer |
+| POST | /wallet/requests `{toPhone,amount,currency,note?}` | yes | creates a 24-hour payment request; requires `Idempotency-Key`; no funds move |
+| GET | /wallet/requests | yes | lists incoming and outgoing payment requests |
+| POST | /wallet/requests/:id/accept | yes | payer-authorized, idempotent same-currency ledger transfer |
+| POST | /wallet/requests/:id/decline | yes | payer declines a pending request |
 | POST | /links `{amount,description?}` | yes | creates payment code |
 | GET | /links/:code | no | payer-facing metadata |
 | POST | /links/:code/pay `{method}` | no | simulated payer checkout |

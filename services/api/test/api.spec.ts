@@ -109,6 +109,52 @@ describe('API flow', () => {
     await request(s).post('/transfers').set(h(alice, 'send-0003')).send({ toPhone: '01099999999', amount: 100 }).expect(404);
   });
 
+
+  it('creates recipient-only receive codes and settles an approved P2P payment request once', async () => {
+    const s = app.getHttpServer();
+    const charlie = await login('01000000041');
+    const dana = await login('01000000042');
+    await request(s).post('/wallet/topup').set(h(dana,'p2p-seed-0001')).send({amount:5_000,method:'instapay'}).expect(201);
+    const receive = await request(s).get('/wallet/receive-code').set(h(charlie)).expect(200);
+    expect(receive.body).toMatchObject({ purpose:'recipient_identification_only' });
+    expect(receive.body.code).toMatch(/^[A-Za-z0-9_-]{32}$/);
+    expect(receive.body.deepLink).toContain('fawran://pay?code=');
+    const replayCode = await request(s).get('/wallet/receive-code').set(h(charlie)).expect(200);
+    expect(replayCode.body.code).toBe(receive.body.code);
+    const resolved = await request(s).get('/wallet/resolve/'+receive.body.code).set(h(dana)).expect(200);
+    expect(resolved.body).toMatchObject({ recipientPhone:'+201000000041',currency:'EGP' });
+    await request(s).get('/wallet/resolve/'+receive.body.code).set(h(charlie)).expect(400);
+    await request(s).get('/wallet/resolve/not-a-valid-code').set(h(dana)).expect(404);
+
+    const aliceBefore = (await request(s).get('/wallet').set(h(charlie))).body.balance;
+    const bobBefore = (await request(s).get('/wallet').set(h(dana))).body.balance;
+    const body = { toPhone:'01000000042',countryCode:'EG',amount:1_000,currency:'EGP',note:'Coffee' };
+    const created = await request(s).post('/wallet/requests').set(h(charlie,'request-0001')).send(body).expect(201);
+    expect(created.body).toMatchObject({ requester_id:expect.any(String),payer_id:expect.any(String),amount:1_000,currency:'EGP',status:'pending',replayed:false });
+    const replay = await request(s).post('/wallet/requests').set(h(charlie,'request-0001')).send(body).expect(201);
+    expect(replay.body.id).toBe(created.body.id);
+    expect(replay.body.replayed).toBe(true);
+    await request(s).post('/wallet/requests').set(h(charlie,'request-0001'))
+      .send({...body,amount:2_000}).expect(400);
+
+    const inbox = await request(s).get('/wallet/requests').set(h(dana)).expect(200);
+    expect(inbox.body).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id:created.body.id,direction:'incoming',status:'pending',amount:1_000 })
+    ]));
+    await request(s).post('/wallet/requests/'+created.body.id+'/accept').set(h(charlie)).send({}).expect(404);
+    const paid = await request(s).post('/wallet/requests/'+created.body.id+'/accept').set(h(dana)).send({}).expect(201);
+    expect(paid.body).toMatchObject({ requestId:created.body.id,status:'accepted',currency:'EGP' });
+    const replayPaid = await request(s).post('/wallet/requests/'+created.body.id+'/accept').set(h(dana)).send({}).expect(201);
+    expect(replayPaid.body).toMatchObject({ txnId:paid.body.txnId,replayed:true });
+    expect((await request(s).get('/wallet').set(h(charlie))).body.balance).toBe(aliceBefore+1_000);
+    expect((await request(s).get('/wallet').set(h(dana))).body.balance).toBe(bobBefore-1_000);
+
+    const declined = await request(s).post('/wallet/requests').set(h(charlie,'request-0002'))
+      .send({...body,amount:500}).expect(201);
+    await request(s).post('/wallet/requests/'+declined.body.id+'/decline').set(h(dana)).send({}).expect(201);
+    await request(s).post('/wallet/requests/'+declined.body.id+'/accept').set(h(dana)).send({}).expect(400);
+  });
+
   it('top-up replay posts to the ledger once and rejects changed payloads', async () => {
     const s = app.getHttpServer();
     const first = await request(s).post('/wallet/topup').set(h(alice, 'topup-replay-01'))
@@ -269,6 +315,9 @@ describe('API flow', () => {
   });
 
   it('prunes expired OTP data and long-expired sessions transactionally', async () => {
+    // Reset the shared test IP bucket so this case is independent of earlier OTP abuse tests.
+    await pool.query('delete from otp_verify_rate_limits');
+    await pool.query('delete from otp_rate_limits');
     const phone = '01000000036';
     await request(app.getHttpServer()).post('/auth/otp').send({ phone }).expect(201);
     const login = await request(app.getHttpServer()).post('/auth/verify').send({ phone, code:'000000' }).expect(201);

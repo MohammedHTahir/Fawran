@@ -1,6 +1,6 @@
-import { BadRequestException, Body, Controller, Get, Headers, Inject, NotFoundException, Post, UseGuards, Module, HttpException, Query } from '@nestjs/common';
-import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
-import { createHash } from 'crypto';
+import { BadRequestException, Body, Controller, Get, Headers, Inject, NotFoundException, Post, Param, UseGuards, Module, HttpException, Query } from '@nestjs/common';
+import { IsIn, IsInt, IsOptional, IsString, Max, Min, Length } from 'class-validator';
+import { createHash, randomBytes, randomUUID } from 'crypto';
 import { Pool } from 'pg';
 import { AuthGuard, AuthModule, AuthUser, CurrentUser, normalizePhone } from '../auth/auth';
 import { PG_POOL, SYSTEM_PROVIDER_ACCOUNT } from '../db/db.module';
@@ -17,6 +17,13 @@ class TransferDto {
   @IsOptional() @IsString() note?: string;
   @IsOptional() @IsString() currency?: string;
   @IsOptional() @IsString() countryCode?: string;
+}
+class CreatePaymentRequestDto {
+  @IsString() toPhone: string;
+  @IsInt() @Min(1) @Max(LIMITS.perTransfer) amount: number;
+  @IsString() @Length(3, 3) currency: string;
+  @IsOptional() @IsString() countryCode?: string;
+  @IsOptional() @IsString() @Length(0, 140) note?: string;
 }
 class CreateWalletDto {
   @IsString() currency: string;
@@ -162,6 +169,97 @@ export class WalletController {
       currency, idemKey: `${u.id}:p2p:${currency}:${requireKey(key)}`, kind: 'p2p', memo: b.note });
     return { txnId: t.txnId, replayed: t.replayed, currency, balance: await this.ledger.balance(fromAccount) };
   }
+  @Get('wallet/receive-code')
+  async receiveCode(@CurrentUser() u: AuthUser) {
+    let result = await this.pool.query("select code from wallet_payment_handles where user_id=$1", [u.id]);
+    if (!result.rows[0]) {
+      const code = randomBytes(24).toString('base64url');
+      await this.pool.query("insert into wallet_payment_handles(user_id,code) values($1,$2) on conflict(user_id) do nothing", [u.id,code]);
+      result = await this.pool.query("select code from wallet_payment_handles where user_id=$1", [u.id]);
+    }
+    const code = result.rows[0]?.code as string;
+    return { code, deepLink: "fawran://pay?code=" + encodeURIComponent(code), purpose:"recipient_identification_only" };
+  }
+
+  @Get('wallet/resolve/:code')
+  async resolveReceiveCode(@CurrentUser() u: AuthUser, @Param('code') code: string) {
+    if (!/^[A-Za-z0-9_-]{32}$/.test(code)) throw new NotFoundException('Recipient code not found');
+    const result = await this.pool.query(
+      "select u.id,u.phone,u.default_currency from wallet_payment_handles h join users u on u.id=h.user_id where h.code=$1", [code]);
+    if (!result.rows[0]) throw new NotFoundException('Recipient code not found');
+    if (result.rows[0].id === u.id) throw new BadRequestException('You cannot send money to yourself');
+    return { recipientPhone:result.rows[0].phone,currency:result.rows[0].default_currency };
+  }
+
+  @Post('wallet/requests')
+  async createPaymentRequest(@CurrentUser() u: AuthUser, @Body() b: CreatePaymentRequestDto,
+    @Headers('idempotency-key') key?: string) {
+    const idem = requireKey(key);
+    const phone = normalizePhone(b.toPhone,b.countryCode ?? u.countryCode ?? 'EG');
+    const currency = b.currency.trim().toUpperCase();
+    if (!getMarketByCurrency(currency)) throw new BadRequestException('Unsupported request currency');
+    await this.accountForCurrency(u.id,currency);
+    const payer = await this.pool.query(
+      "select x.id from users x join accounts a on a.owner_id=x.id where x.phone=$1 and a.currency=$2", [phone,currency]);
+    if (!payer.rows[0]) throw new NotFoundException('Payer does not have a wallet in this currency');
+    if (payer.rows[0].id === u.id) throw new BadRequestException('You cannot request money from yourself');
+    const fingerprint = createHash('sha256').update(JSON.stringify({
+      requesterId:u.id,payerId:payer.rows[0].id,amount:b.amount,currency,note:b.note?.trim()||null,
+    })).digest('hex');
+    const id = randomUUID();
+    await this.pool.query(
+      "insert into wallet_payment_requests (id,requester_id,payer_id,amount,currency,note,idempotency_key,request_fingerprint,expires_at) values($1,$2,$3,$4,$5,$6,$7,$8,now()+interval '24 hours') on conflict(requester_id,idempotency_key) do nothing",
+      [id,u.id,payer.rows[0].id,b.amount,currency,b.note?.trim()||null,idem,fingerprint]);
+    const saved = await this.pool.query(
+      "select id,requester_id,payer_id,amount,currency,note,status,ledger_txn_id,expires_at,created_at,request_fingerprint from wallet_payment_requests where requester_id=$1 and idempotency_key=$2", [u.id,idem]);
+    const request = saved.rows[0];
+    if (!request || request.request_fingerprint !== fingerprint) throw new BadRequestException('Idempotency key was already used for a different payment request');
+    delete request.request_fingerprint;
+    return { ...request,amount:Number(request.amount),replayed:request.id !== id };
+  }
+
+  @Get('wallet/requests')
+  async paymentRequests(@CurrentUser() u: AuthUser) {
+    const result = await this.pool.query(
+      "select r.id,r.requester_id,r.payer_id,r.amount,r.currency,r.note,r.status,r.ledger_txn_id,r.expires_at,r.created_at,case when r.requester_id=$1 then 'outgoing' else 'incoming' end as direction,case when r.requester_id=$1 then payer.phone else requester.phone end as counterparty_phone from wallet_payment_requests r join users requester on requester.id=r.requester_id join users payer on payer.id=r.payer_id where r.requester_id=$1 or r.payer_id=$1 order by r.created_at desc limit 100", [u.id]);
+    return result.rows.map((row:any)=>({...row,amount:Number(row.amount)}));
+  }
+
+  @Post('wallet/requests/:id/accept')
+  async acceptPaymentRequest(@CurrentUser() u: AuthUser, @Param('id') id: string) {
+    const found = await this.pool.query("select * from wallet_payment_requests where id=$1 and payer_id=$2", [id,u.id]);
+    const request = found.rows[0];
+    if (!request) throw new NotFoundException('Payment request not found');
+    if (request.status === 'accepted' && request.ledger_txn_id) {
+      return {requestId:id,txnId:request.ledger_txn_id,replayed:true,status:'accepted'};
+    }
+    if (request.status === 'pending' && new Date(request.expires_at).getTime() <= Date.now()) {
+      await this.pool.query("update wallet_payment_requests set status='expired',updated_at=now() where id=$1 and status='pending'", [id]);
+      throw new BadRequestException('Payment request has expired');
+    }
+    if (!['pending','processing'].includes(request.status)) {
+      throw new BadRequestException('Payment request cannot be accepted from status ' + request.status);
+    }
+    await this.pool.query("update wallet_payment_requests set status='processing',updated_at=now() where id=$1 and status='pending'", [id]);
+    const fromAccount = u.defaultCurrency === request.currency ? u.accountId : await this.accountForCurrency(u.id,request.currency);
+    const toAccount = await this.accountForCurrency(request.requester_id,request.currency);
+    const transfer = await this.ledger.transfer({
+      from:fromAccount,to:toAccount,amount:Number(request.amount),currency:request.currency,
+      idemKey:'p2p-request:' + id,kind:'p2p',memo:request.note || 'Accepted payment request',
+    });
+    await this.pool.query("update wallet_payment_requests set status='accepted',ledger_txn_id=$2,updated_at=now() where id=$1 and status='processing'", [id,transfer.txnId]);
+    return {requestId:id,txnId:transfer.txnId,replayed:transfer.replayed,status:'accepted',
+      currency:request.currency,balance:await this.ledger.balance(fromAccount)};
+  }
+
+  @Post('wallet/requests/:id/decline')
+  async declinePaymentRequest(@CurrentUser() u: AuthUser, @Param('id') id: string) {
+    const result = await this.pool.query(
+      "update wallet_payment_requests set status='declined',updated_at=now() where id=$1 and payer_id=$2 and status='pending' returning id,status", [id,u.id]);
+    if (!result.rows[0]) throw new NotFoundException('Pending payment request not found');
+    return result.rows[0];
+  }
+
 }
 
 @Module({ imports: [AuthModule, ProviderModule], controllers: [WalletController] })

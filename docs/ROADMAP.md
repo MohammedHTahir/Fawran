@@ -34,7 +34,7 @@ Build a trusted Egypt-first money movement and merchant collection experience. K
 
 - Customer profile and KYC status/limits sourced from the licensed partner.
 - Wallet balance and activity with search, filters, transaction detail, and downloadable receipt.
-- Send and request money; split bills; QR receive/pay.
+- Send money, durable payment requests, and QR/deep-link receive/pay are implemented for prototype ledger balances; split bills remain outstanding.
 - Cash-in/cash-out only through approved partner agents and verified settlement flows.
 - Funding methods and withdrawals through supported partner rails.
 - Notifications, support, device security, and clear failed/pending states.
