@@ -418,9 +418,11 @@ export default function App() {
     try {
       const parsed=new URL(url), code=parsed.searchParams.get('code');
       if(parsed.protocol!=='fawran:'||parsed.hostname!=='pay'||!code||!token)return;
-      const resolved=await api<{recipientPhone:string;currency:string}>('/wallet/resolve/'+encodeURIComponent(code),token);
+      const resolved=await api<{recipientPhone:string;currency:string;currencies:string[]}>('/wallet/resolve/'+encodeURIComponent(code),token);
       setTo(resolved.recipientPhone);setAmount('');setNote('');setPage('send');
-      if(['AED','EGP','SAR','GBP','USD'].includes(resolved.currency))setCurrency(resolved.currency);
+      const sharedCurrency=resolved.currencies.includes(currency)?currency:resolved.currencies.find(code=>wallets.some(wallet=>wallet.currency===code));
+      if(sharedCurrency)setCurrency(sharedCurrency);
+      else Alert.alert(w.invalidRequest,rtl?'لا توجد محفظة مشتركة بنفس العملة. أضف محفظة بعملة المستلم أولاً.':'You do not have a wallet in a currency supported by this recipient. Add a matching currency wallet before sending.');
     } catch(e) { Alert.alert(w.generic,errorText(e,w)); }
   };
   useEffect(()=>{
