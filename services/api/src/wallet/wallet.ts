@@ -185,10 +185,10 @@ export class WalletController {
   async resolveReceiveCode(@CurrentUser() u: AuthUser, @Param('code') code: string) {
     if (!/^[A-Za-z0-9_-]{32}$/.test(code)) throw new NotFoundException('Recipient code not found');
     const result = await this.pool.query(
-      "select u.id,u.phone,u.default_currency from wallet_payment_handles h join users u on u.id=h.user_id where h.code=$1", [code]);
+      "select u.id,u.phone,u.default_currency,array_agg(a.currency order by a.currency) as currencies from wallet_payment_handles h join users u on u.id=h.user_id join accounts a on a.owner_id=u.id where h.code=$1 group by u.id,u.phone,u.default_currency", [code]);
     if (!result.rows[0]) throw new NotFoundException('Recipient code not found');
     if (result.rows[0].id === u.id) throw new BadRequestException('You cannot send money to yourself');
-    return { recipientPhone:result.rows[0].phone,currency:result.rows[0].default_currency };
+    return { recipientPhone:result.rows[0].phone,currency:result.rows[0].default_currency,currencies:result.rows[0].currencies as string[] };
   }
 
   @Post('wallet/requests')
