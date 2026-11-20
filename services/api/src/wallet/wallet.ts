@@ -198,6 +198,7 @@ export class WalletController {
     const phone = normalizePhone(b.toPhone,b.countryCode ?? u.countryCode ?? 'EG');
     const currency = b.currency.trim().toUpperCase();
     if (!getMarketByCurrency(currency)) throw new BadRequestException('Unsupported request currency');
+    await this.accountForCurrency(u.id,currency);
     const payer = await this.pool.query(
       "select x.id from users x join accounts a on a.owner_id=x.id where x.phone=$1 and a.currency=$2", [phone,currency]);
     if (!payer.rows[0]) throw new NotFoundException('Payer does not have a wallet in this currency');
