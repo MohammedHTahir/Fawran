@@ -38,6 +38,10 @@ class SubmitMarketGateDto {
 class MarketGateNoteDto {
   @IsString() @Length(3, 1000) note!: string;
 }
+class ReconciliationDecisionDto {
+  @IsIn(['resolved','ignored']) status!: 'resolved'|'ignored';
+  @IsString() @Length(3, 1000) note!: string;
+}
 
 @Controller('support/cases')
 @UseGuards(AuthGuard)
@@ -93,6 +97,22 @@ export class SupportAdminController {
   @Post(':id/status')
   update(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: UpdateSupportCaseDto) {
     return this.operations.updateSupportCase(user.id, id, body.status, body.note);
+  }
+}
+
+
+@Controller('admin/reconciliation/exceptions')
+@UseGuards(AuthGuard, AdminRoleGuard)
+@RequireAdminRoles('super_admin','finance_admin')
+export class ReconciliationExceptionAdminController {
+  constructor(private readonly operations: OperationsService) {}
+  @Get()
+  list(@Query('status') status?: string) {
+    return this.operations.listReconciliationExceptions(status);
+  }
+  @Post(':id/decision')
+  decide(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: ReconciliationDecisionDto) {
+    return this.operations.decideReconciliationException(user.id, id, body.status, body.note);
   }
 }
 

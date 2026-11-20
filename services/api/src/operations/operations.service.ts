@@ -191,6 +191,71 @@ export class OperationsService {
     return { countryCode, gateKey, status: updated.rows[0].status, realMoneyEnabled: false };
   }
 
+  async listReconciliationExceptions(status?: string) {
+    if (status && !['open', 'resolved', 'ignored'].includes(status)) {
+      throw new BadRequestException('Invalid reconciliation exception status filter');
+    }
+    const result = await this.pool.query(
+      `select e.id,e.batch_id,e.settlement_line_id,e.kind,e.details,e.status,e.created_at,
+              e.resolved_at,e.resolved_by,b.provider_name,b.external_batch_id,b.currency as batch_currency,
+              b.settlement_date,l.line_number,l.provider_ref,l.line_type,l.gross_amount_minor,
+              l.fee_amount_minor,l.net_amount_minor,l.currency as line_currency,l.match_status
+         from reconciliation_exceptions e
+         join settlement_batches b on b.id=e.batch_id
+         join settlement_lines l on l.id=e.settlement_line_id
+        where ($1::text is null or e.status=$1)
+        order by case e.status when 'open' then 0 when 'resolved' then 1 else 2 end,e.created_at desc
+        limit 200`,
+      [status ?? null],
+    );
+    return result.rows.map((row) => ({
+      ...row,
+      gross_amount_minor: Number(row.gross_amount_minor),
+      fee_amount_minor: Number(row.fee_amount_minor),
+      net_amount_minor: Number(row.net_amount_minor),
+    }));
+  }
+
+  async decideReconciliationException(
+    actorId: string, id: string, status: 'resolved' | 'ignored', note: string,
+  ) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('begin');
+      const current = await client.query(
+        'select id,status,kind,batch_id,details from reconciliation_exceptions where id=$1 for update',
+        [id],
+      );
+      if (!current.rows[0]) throw new NotFoundException('Reconciliation exception not found');
+      if (current.rows[0].status !== 'open') {
+        throw new ConflictException('Only open reconciliation exceptions can be decided');
+      }
+      const details = { status, note: note.trim(), decidedBy: actorId, decidedAt: new Date().toISOString() };
+      const updated = await client.query(
+        `update reconciliation_exceptions
+            set status=$2,resolved_at=now(),resolved_by=$3,
+                details=$4::jsonb
+          where id=$1 and status='open'
+          returning id,status,kind,batch_id,resolved_at,resolved_by`,
+        [id, status, actorId, JSON.stringify({ ...(current.rows[0].details ?? {}), decision: details })],
+      );
+      if (!updated.rows[0]) throw new ConflictException('Reconciliation exception was decided concurrently');
+      await client.query(
+        `insert into admin_audit_events(id,actor_user_id,action,entity_type,entity_id,details)
+         values($1,$2,$3,'reconciliation_exception',$4,$5::jsonb)`,
+        [randomUUID(), actorId, 'reconciliation_exception.' + status, id,
+          JSON.stringify({ kind: current.rows[0].kind, batchId: current.rows[0].batch_id, note: note.trim() })],
+      );
+      await client.query('commit');
+      return updated.rows[0];
+    } catch (error) {
+      await client.query('rollback').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async auditTrail() {
     const result = await this.pool.query(
       'select id,actor_user_id,action,entity_type,entity_id,details,created_at from admin_audit_events order by created_at desc limit 200',

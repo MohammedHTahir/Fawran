@@ -104,4 +104,46 @@ describe('multi-market operations controls', () => {
     expect(audit.body.some((event: any) => event.action === 'risk_case.created')).toBe(true);
     expect(audit.body.some((event: any) => event.action === 'market_gate.verified')).toBe(true);
   });
+  it('provides a finance-only reconciliation exception queue with audited, idempotent decisions', async () => {
+    const batchId = 'test-recon-batch-' + Date.now();
+    const lineId = 'test-recon-line-' + Date.now();
+    const exceptionId = 'test-recon-exception-' + Date.now();
+    await pool.query(
+      `insert into settlement_batches(id,provider_name,external_batch_id,request_fingerprint,currency,settlement_date,imported_by,status,line_count,matched_count,exception_count)
+       values($1,'test',$2,'fingerprint','EGP',current_date,$3,'has_exceptions',1,0,1)`,
+      [batchId, batchId, supportAdminId],
+    );
+    await pool.query(
+      `insert into settlement_lines(id,batch_id,line_number,provider_ref,line_type,gross_amount_minor,fee_amount_minor,net_amount_minor,currency,match_status)
+       values($1,$2,1,'test_provider_ref','charge',1000,25,975,'EGP','unmatched')`,
+      [lineId, batchId],
+    );
+    await pool.query(
+      `insert into reconciliation_exceptions(id,batch_id,settlement_line_id,kind,details)
+       values($1,$2,$3,'unmatched',$4::jsonb)`,
+      [exceptionId, batchId, lineId, JSON.stringify({ providerRef: 'test_provider_ref' })],
+    );
+
+    await request(app.getHttpServer()).get('/admin/reconciliation/exceptions')
+      .set(auth(secondAdminToken)).expect(403);
+    const queue = await request(app.getHttpServer()).get('/admin/reconciliation/exceptions?status=open')
+      .set(auth(supportAdminToken)).expect(200);
+    expect(queue.body.some((row: any) => row.id === exceptionId)).toBe(true);
+
+    const decision = await request(app.getHttpServer()).post(`/admin/reconciliation/exceptions/${exceptionId}/decision`)
+      .set(auth(supportAdminToken)).send({ status: 'resolved', note: 'Matched against the test provider statement.' }).expect(201);
+    expect(decision.body).toMatchObject({ id: exceptionId, status: 'resolved', resolved_by: supportAdminId });
+
+    await request(app.getHttpServer()).post(`/admin/reconciliation/exceptions/${exceptionId}/decision`)
+      .set(auth(supportAdminToken)).send({ status: 'ignored', note: 'Second decision must not overwrite the first.' }).expect(409);
+    const stored = await pool.query('select status,details from reconciliation_exceptions where id=$1', [exceptionId]);
+    expect(stored.rows[0].status).toBe('resolved');
+    expect(stored.rows[0].details.decision.note).toBe('Matched against the test provider statement.');
+    const audit = await pool.query(
+      "select action from admin_audit_events where entity_type='reconciliation_exception' and entity_id=$1",
+      [exceptionId],
+    );
+    expect(audit.rows.map((row: any) => row.action)).toEqual(['reconciliation_exception.resolved']);
+  });
+
 });
