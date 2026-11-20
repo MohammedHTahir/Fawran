@@ -660,6 +660,41 @@ create index merchant_campaign_audit_campaign_idx
 create index merchant_campaign_audit_merchant_idx
   on merchant_campaign_audit_events(merchant_id,created_at desc);
 `,
+  }, {
+    version: 16,
+    name: 'p2p_payment_requests_and_receive_codes',
+    sql: `
+create table wallet_payment_handles (
+  user_id text primary key references users(id) on delete cascade,
+  code text not null unique,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create table wallet_payment_requests (
+  id text primary key,
+  requester_id text not null references users(id) on delete restrict,
+  payer_id text not null references users(id) on delete restrict,
+  amount bigint not null check (amount > 0),
+  currency text not null check (currency in ('AED','EGP','SAR','GBP','USD')),
+  note text,
+  status text not null default 'pending'
+    check (status in ('pending','processing','accepted','declined','cancelled','expired','under_review')),
+  idempotency_key text not null,
+  request_fingerprint text not null,
+  ledger_txn_id text unique,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (requester_id <> payer_id),
+  unique(requester_id,idempotency_key)
+);
+create index wallet_payment_requests_requester_idx
+  on wallet_payment_requests(requester_id,status,created_at desc);
+create index wallet_payment_requests_payer_idx
+  on wallet_payment_requests(payer_id,status,created_at desc);
+create index wallet_payment_requests_expiry_idx
+  on wallet_payment_requests(status,expires_at);
+`,
   },
 ] as const;
 
