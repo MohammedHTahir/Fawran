@@ -543,7 +543,7 @@ export default function App() {
         {req.direction==='incoming'&&req.status==='pending'?<View style={{gap:6}}>
           <Pressable disabled={busy} onPress={()=>acceptPaymentRequest(req)}><Text style={{color:C.teal,fontWeight:'900',fontSize:11}}>{rtl?'دفع':'Pay'}</Text></Pressable>
           <Pressable disabled={busy} onPress={()=>void declinePaymentRequest(req)}><Text style={{color:C.red,fontWeight:'900',fontSize:11}}>{rtl?'رفض':'Decline'}</Text></Pressable>
-        </View>:null}
+        </View>:req.direction==='outgoing'&&req.status==='pending'?<Pressable disabled={busy} onPress={()=>Alert.alert(rtl?'إلغاء طلب الدفع؟':'Cancel payment request?',rtl?'لن يتم خصم أي أموال.':'No money will move.',[{text:w.cancel,style:'cancel'},{text:rtl?'إلغاء الطلب':'Cancel request',style:'destructive',onPress:async()=>{setBusy(true);try{await api('/wallet/requests/'+encodeURIComponent(req.id)+'/cancel',token,'POST',{});setPaymentRequests(await api<WalletPaymentRequest[]>('/wallet/requests',token));}catch(e){Alert.alert(w.generic,errorText(e,w));}finally{setBusy(false);}}}])}><Text style={{color:C.red,fontWeight:'900',fontSize:11}}>{rtl?'إلغاء الطلب':'Cancel'}</Text></Pressable>:null}
       </View>)}
     </View>
   </ScrollView>);
