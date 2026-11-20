@@ -20,7 +20,9 @@ Fawran is a development prototype. It must not process real customer funds or co
 
 ## Financial correctness — still blocking
 
-- [ ] Integrate an appropriately licensed payment partner with durable provider-side idempotency, signed webhooks, provider event replay protection, settlement reports, and documented timeout/reversal semantics.
+- [ ] Implement and certify merchant Tap to Pay / SoftPOS using a supported PSP SDK on iOS and Android. See `docs/TAP_TO_PAY_INTEGRATION.md`; credentials alone are insufficient without provider approval, native SDK integration, Apple entitlement, device certification, verified webhooks and settlement reconciliation.
+
+- [ ] Integrate an appropriately licensed payment partner with durable provider-side idempotency, signed webhooks, provider event replay protection, settlement reports, and documented timeout/reversal semantics. UAE Tap to Pay candidate providers are not yet contracted or enabled.
 - [ ] Complete a durable payment-intent state machine for pending, succeeded, failed, reversed, and under-review outcomes. Define webhook-before-response, charge-succeeded/ledger-failed, late success, and duplicate event behavior.
 - [ ] Build automated provider-to-ledger reconciliation, exception queues, operator tooling, alerts, and signed-off runbooks. Current Blnk reconciliation is an inspection command for pending/unknown ledger operations, not a complete PSP settlement reconciler.
 - [ ] Have a payments specialist review refunds, reversals, disputes, chargebacks, payouts, fees, holds, limits, and negative-balance policy.
