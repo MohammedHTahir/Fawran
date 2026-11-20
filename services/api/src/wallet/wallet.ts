@@ -22,6 +22,7 @@ class CreatePaymentRequestDto {
   @IsString() toPhone: string;
   @IsInt() @Min(1) @Max(LIMITS.perTransfer) amount: number;
   @IsString() @Length(3, 3) currency: string;
+  @IsOptional() @IsString() countryCode?: string;
   @IsOptional() @IsString() @Length(0, 140) note?: string;
 }
 class CreateWalletDto {
@@ -194,7 +195,7 @@ export class WalletController {
   async createPaymentRequest(@CurrentUser() u: AuthUser, @Body() b: CreatePaymentRequestDto,
     @Headers('idempotency-key') key?: string) {
     const idem = requireKey(key);
-    const phone = normalizePhone(b.toPhone,u.countryCode ?? 'EG');
+    const phone = normalizePhone(b.toPhone,b.countryCode ?? u.countryCode ?? 'EG');
     const currency = b.currency.trim().toUpperCase();
     if (!getMarketByCurrency(currency)) throw new BadRequestException('Unsupported request currency');
     const payer = await this.pool.query(
