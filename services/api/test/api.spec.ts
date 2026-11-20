@@ -153,6 +153,11 @@ describe('API flow', () => {
       .send({...body,amount:500}).expect(201);
     await request(s).post('/wallet/requests/'+declined.body.id+'/decline').set(h(dana)).send({}).expect(201);
     await request(s).post('/wallet/requests/'+declined.body.id+'/accept').set(h(dana)).send({}).expect(400);
+    const cancelled = await request(s).post('/wallet/requests').set(h(charlie,'request-0003'))
+      .send({...body,amount:250}).expect(201);
+    await request(s).post('/wallet/requests/'+cancelled.body.id+'/cancel').set(h(dana)).send({}).expect(404);
+    await request(s).post('/wallet/requests/'+cancelled.body.id+'/cancel').set(h(charlie)).send({}).expect(201);
+    await request(s).post('/wallet/requests/'+cancelled.body.id+'/accept').set(h(dana)).send({}).expect(400);
   });
 
   it('top-up replay posts to the ledger once and rejects changed payloads', async () => {

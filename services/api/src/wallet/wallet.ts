@@ -260,6 +260,15 @@ export class WalletController {
     return result.rows[0];
   }
 
+  @Post('wallet/requests/:id/cancel')
+  async cancelPaymentRequest(@CurrentUser() u: AuthUser, @Param('id') id: string) {
+    const result = await this.pool.query(
+      "update wallet_payment_requests set status='cancelled',updated_at=now() where id=$1 and requester_id=$2 and status='pending' returning id,status",
+      [id,u.id]);
+    if (!result.rows[0]) throw new NotFoundException('Pending outgoing payment request not found');
+    return result.rows[0];
+  }
+
 }
 
 @Module({ imports: [AuthModule, ProviderModule], controllers: [WalletController] })
