@@ -42,6 +42,7 @@ Use `/health/ready` for deployment readiness probes and `/health/live` for proce
 | GET | /wallet/requests | yes | lists incoming and outgoing payment requests |
 | POST | /wallet/requests/:id/accept | yes | payer-authorized, idempotent same-currency ledger transfer |
 | POST | /wallet/requests/:id/decline | yes | payer declines a pending request |
+| POST | /wallet/requests/:id/cancel | yes | requester cancels an outgoing pending request |
 | POST | /links `{amount,description?}` | yes | creates payment code |
 | GET | /links/:code | no | payer-facing metadata |
 | POST | /links/:code/pay `{method}` | no | simulated payer checkout |
