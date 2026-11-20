@@ -14,6 +14,7 @@ Fawran is a development prototype. It must not process real customer funds or co
 - [x] Production payment and SMS adapters fail closed when not configured; mock provider and fixed development OTP are not used in production.
 - [x] Mobile API timeout and actionable connection diagnostics.
 - [x] API liveness and readiness endpoints; readiness checks database connectivity and current schema migrations.
+- [x] API HTTP baseline: security response headers, no-store responses, production HSTS, exact-origin CORS allowlist (browser CORS disabled in production when unset), and explicit trusted-proxy hop configuration. Deployment must set the real origin list and proxy hop count for its topology.
 - [x] Transactional cleanup command for expired OTP challenges, stale rate-limit rows, and long-expired/revoked auth sessions; schedule it daily in deployment.
 - [x] PostgreSQL ledger integrity verification command for cached-balance and double-entry invariants; schedule it daily and alert on mismatches. Blnk pending/unknown operation inspection remains a separate command.
 
@@ -35,7 +36,7 @@ Fawran is a development prototype. It must not process real customer funds or co
 - [ ] Configure JWT signing secrets and OTP pepper in managed secret storage, with rotation and incident procedures. Production `JWT_SECRET`, `OTP_PEPPER`, and `SESSION_TOKEN_PEPPER` must each be separate random values of at least 32 characters.
 - [ ] Complete a threat model, dependency review, SAST/DAST, secret scanning, and independent penetration test; remediate all critical/high findings.
 - [ ] Define PII encryption, access controls, retention/deletion, privacy notice, consent, and data-subject request workflows.
-- [ ] Implement admin RBAC, maker-checker controls, and immutable admin audit trail.
+- [x] Implement scoped admin RBAC, maker-checker evidence approval, and append-only admin audit events for operations actions. This is a control foundation, not a substitute for independent compliance review.
 
 ## Operations — still blocking
 
