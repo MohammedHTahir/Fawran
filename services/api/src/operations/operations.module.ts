@@ -3,7 +3,7 @@ import { AuthModule } from '../auth/auth';
 import { AdminRoleGuard } from '../admin/admin-role.guard';
 import {
   CustomerSupportController, MarketReadinessAdminController, OperationsAdminController,
-  RiskAdminController, SupportAdminController,
+  ReconciliationExceptionAdminController, RiskAdminController, SupportAdminController,
 } from './operations.controller';
 import { OperationsService } from './operations.service';
 
@@ -11,7 +11,7 @@ import { OperationsService } from './operations.service';
   imports: [AuthModule],
   controllers: [
     CustomerSupportController, OperationsAdminController, RiskAdminController,
-    SupportAdminController, MarketReadinessAdminController,
+    SupportAdminController, MarketReadinessAdminController, ReconciliationExceptionAdminController,
   ],
   providers: [AdminRoleGuard, OperationsService],
   exports: [OperationsService],
