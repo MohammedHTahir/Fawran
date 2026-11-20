@@ -18,6 +18,8 @@ Fawran is a development prototype. It must not process real customer funds or co
 - [x] Transactional cleanup command for expired OTP challenges, stale rate-limit rows, and long-expired/revoked auth sessions; schedule it daily in deployment.
 - [x] PostgreSQL ledger integrity verification command for cached-balance and double-entry invariants; schedule it daily and alert on mismatches. Blnk pending/unknown operation inspection remains a separate command.
 
+- [x] Test-mode P2P payment requests with 24-hour expiry, payer-only acceptance/decline, idempotent ledger settlement, and authenticated opaque receive-code QR/deep-link resolution. This is an internal prototype ledger flow, not a live payment rail.
+
 ## Financial correctness — still blocking
 
 - [ ] Implement and certify merchant Tap to Pay / SoftPOS using a supported PSP SDK on iOS and Android. See `docs/TAP_TO_PAY_INTEGRATION.md`; credentials alone are insufficient without provider approval, native SDK integration, Apple entitlement, device certification, verified webhooks and settlement reconciliation.
