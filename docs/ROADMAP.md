@@ -24,7 +24,7 @@ Build a trusted Egypt-first money movement and merchant collection experience. K
 - Implement PSP timeout recovery, settlement reconciliation, and exception queues; never assume a timeout means failure.
 - Add device-bound and global abuse controls for OTP, SMS pumping protection, and production SMS delivery monitoring.
 - Add refresh-token rotation, device/session listing, revocation, and access-token invalidation.
-- Add role-based admin access, immutable admin audit logs, and operator runbooks.
+- Complete operator runbooks and formalize operational ownership for support, compliance, finance and incident response. Scoped admin RBAC, maker-checker market evidence approval and append-only admin audit events are implemented; independent control review remains outstanding.
 - Add privacy-safe structured logs, traces, metrics, alerts, and correlation IDs.
 - Run concurrency and fault-injection tests against real PostgreSQL and a provider sandbox.
 
