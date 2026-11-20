@@ -16,7 +16,7 @@ function configuredCorsOrigins(): string[] {
 function configuredTrustProxyHops(): number | undefined {
   const raw = process.env.TRUST_PROXY_HOPS;
   if (raw === undefined || raw.trim() === '') return undefined;
-  if (!/^\\d+$/.test(raw.trim())) {
+  if (!/^\d+$/.test(raw.trim())) {
     throw new Error('TRUST_PROXY_HOPS must be a non-negative integer');
   }
   const hops = Number(raw);
